@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "dgSpecHash": "CnBlrqki8kw=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\asdfg\\OneDrive\\Desktop\\discordtest\\discordtest.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.aspnetcore.authentication.jwtbearer\\9.0.6\\microsoft.aspnetcore.authentication.jwtbearer.9.0.6.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.aspnetcore.openapi\\9.0.6\\microsoft.aspnetcore.openapi.9.0.6.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.bcl.cryptography\\10.0.2\\microsoft.bcl.cryptography.10.0.2.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\8.0.0\\microsoft.extensions.dependencyinjection.abstractions.8.0.0.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.extensions.logging.abstractions\\8.0.0\\microsoft.extensions.logging.abstractions.8.0.0.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.identitymodel.abstractions\\8.19.1\\microsoft.identitymodel.abstractions.8.19.1.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.identitymodel.jsonwebtokens\\8.19.1\\microsoft.identitymodel.jsonwebtokens.8.19.1.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.identitymodel.logging\\8.19.1\\microsoft.identitymodel.logging.8.19.1.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.identitymodel.protocols\\8.0.1\\microsoft.identitymodel.protocols.8.0.1.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.identitymodel.protocols.openidconnect\\8.0.1\\microsoft.identitymodel.protocols.openidconnect.8.0.1.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.identitymodel.tokens\\8.19.1\\microsoft.identitymodel.tokens.8.19.1.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\microsoft.openapi\\1.6.17\\microsoft.openapi.1.6.17.nupkg.sha512",
+    "C:\\Users\\asdfg\\.nuget\\packages\\system.identitymodel.tokens.jwt\\8.19.1\\system.identitymodel.tokens.jwt.8.19.1.nupkg.sha512"
+  ],
+  "logs": []
+}
