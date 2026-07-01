@@ -1,1 +1,1 @@
-wip project - pretty much a discord clo
+wip project - pretty much a discord clone
