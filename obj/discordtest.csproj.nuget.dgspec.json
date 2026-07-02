@@ -59,9 +59,13 @@
               "target": "Package",
               "version": "[9.0.6, )"
             },
-            "System.IdentityModel.Tokens.Jwt": {
+            "Npgsql": {
               "target": "Package",
-              "version": "[8.19.1, )"
+              "version": "[10.0.3, )"
+            },
+            "StackExchange.Redis": {
+              "target": "Package",
+              "version": "[3.0.11, )"
             }
           },
           "imports": [

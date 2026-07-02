@@ -36,27 +36,49 @@ public class WebSocketController : ControllerBase
         var UserId = HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
         if (string.IsNullOrWhiteSpace(UserId)) return;
-
+        
         WebSocket websocket = await HttpContext.WebSockets.AcceptWebSocketAsync();
+
+        try {
+
         Manager.Users[UserId.ToString()] = websocket;
         var buffer = new byte[1024  * 4];
 
         while (websocket.State == WebSocketState.Open)
         {
             var result = await websocket.ReceiveAsync(new ArraySegment<byte> (buffer), CancellationToken.None);
+            var exit = false;
 
-            if (result.MessageType == WebSocketMessageType.Close)
+            switch (result.MessageType)
             {
-                Manager.Users.TryRemove(UserId.ToString(), out _);
-                await websocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
-                websocket.Dispose();
+                case WebSocketMessageType.Text:
+                    string text = Encoding.UTF8.GetString(buffer, 0, result.Count);
+
+                    switch (text)
+                    {
+                        case "Typing":
+
+                        break;
+                    }
+
+                    break;
+                case WebSocketMessageType.Close:
+                    await websocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+                    websocket.Dispose();
+                    exit = true;
+                    break;
+            }
+
+            if (exit)
+            {
                 break;
-            } else
-            {
-                var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                var ResponseBytes = Encoding.UTF8.GetBytes($"Echo {message}");
-                await websocket.SendAsync(new ArraySegment<byte> (ResponseBytes), WebSocketMessageType.Text, true, CancellationToken.None);
-            }   
+            }
+        }
+
+        } finally
+        {
+            Manager.Users.TryRemove(UserId.ToString(), out _);
+            websocket.Dispose();
         }
     }
 }
