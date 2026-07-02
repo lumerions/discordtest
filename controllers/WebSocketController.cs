@@ -8,6 +8,10 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Collections.Concurrent;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using System.Text.Json;
+using Internal.Redis;
+using System.Net.Sockets;
+using StackExchange.Redis;
 
 namespace Internal.WebSocketController;
 
@@ -15,14 +19,25 @@ public class WebSocketSessionManager {
     public ConcurrentDictionary<string, WebSocket> Users = new();
 }
 
+public class SocketMessage
+{
+    public string Type {get; set;}
+    public int UserId {get; set;}
+    public string? Message {get; set;}
+    public int DiscordChannelId {get; set;}
+}
+
 [ApiController]
 [Route("/ws/{controller}")]
 public class WebSocketController : ControllerBase
 {
     private readonly WebSocketSessionManager Manager;
-    public WebSocketController(WebSocketSessionManager manager)
+    private readonly IDatabase RedisDatabase;
+
+    public WebSocketController(WebSocketSessionManager manager, RedisHandler redis_)
     {
         Manager = manager;
+        RedisDatabase = redis_.GetRedisDatabase();
     }
 
     [HttpGet]
@@ -53,12 +68,18 @@ public class WebSocketController : ControllerBase
             {
                 case WebSocketMessageType.Text:
                     string text = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                    var SocketJSON = JsonSerializer.Deserialize<SocketMessage>(text);
 
-                    switch (text)
-                    {
-                        case "Typing":
-
-                        break;
+                    if (text.StartsWith("{")) {
+                        switch (SocketJSON?.Type)
+                        {
+                            case "Typing":
+                                await RedisDatabase.StringSetAsync(SocketJSON?.DiscordChannelId.ToString() + UserId.ToString(), true);
+                                break;
+                            case "NoTyping":
+                                await RedisDatabase.KeyDeleteAsync(SocketJSON?.DiscordChannelId.ToString() + UserId.ToString());
+                                break;
+                        }
                     }
 
                     break;

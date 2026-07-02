@@ -1,9 +1,9 @@
 using StackExchange.Redis;
 
-namespace Internal.RedisHandler;
-class RedisHandler
+namespace Internal.Redis;
+public class RedisHandler
 {
-    private readonly ConnectionMultiplexer redis_;
+    public ConnectionMultiplexer redis_;
     public RedisHandler()
     {
         redis_ = ConnectionMultiplexer.Connect("localhost:6379");
