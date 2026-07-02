@@ -3,9 +3,12 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using Internal.WebSocketController;
-using Internal.DatabaseHandler;
+using Internal.Database;
 using Internal.Redis;
 using Npgsql;
+
+namespace Internal.MessageHandler;
+
 
 public class MessagePayload
 {

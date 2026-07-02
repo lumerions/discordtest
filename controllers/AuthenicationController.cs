@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Identity;
 
 [ApiController]
 [Route("/auth/{controller}")]
-public class AuthenicationController
+public class AuthenicationController : ControllerBase
 {
     public JwtSecurityToken? GetJWTValue(string Token)
     {

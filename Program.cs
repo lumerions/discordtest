@@ -3,8 +3,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Internal.WebSocketController;
-using Internal.DatabaseHandler;
-using Internal.RedisHandler;
+using Internal.Database;
+using Internal.Redis;
+using Internal.MessageHandler;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +29,7 @@ builder.Services
         };
 });
 
+builder.Services.AddSingleton<WebSocketChannelIdConnections>();
 builder.Services.AddSingleton<RedisHandler>();
 builder.Services.AddSingleton<DatabaseHandler>();
 builder.Services.AddSingleton<WebSocketSessionManager>();

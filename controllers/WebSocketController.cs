@@ -13,6 +13,7 @@ using Internal.Redis;
 using System.Net.Sockets;
 using StackExchange.Redis;
 using Internal.MainController;
+using Internal.Shared;
 
 namespace Internal.WebSocketController;
 
@@ -34,11 +35,13 @@ public class WebSocketController : ControllerBase
 {
     private readonly WebSocketSessionManager Manager;
     private readonly IDatabase RedisDatabase;
+    private readonly WebSocketChannelIdConnections websocketconns_;
 
-    public WebSocketController(WebSocketSessionManager manager, RedisHandler redis_)
+    public WebSocketController(WebSocketSessionManager manager, RedisHandler redis_, WebSocketChannelIdConnections websocketconns)
     {
         Manager = manager;
         RedisDatabase = redis_.GetRedisDatabase();
+        websocketconns_ = websocketconns;
     }
 
     [HttpGet]
@@ -92,14 +95,26 @@ public class WebSocketController : ControllerBase
                                 break;
                         }
                         // TODO add actual auth lol
-                        // TODO send message to all users viewing this channel and send a message telling them to poll for the current users typing
+                        if (!websocketconns_.ChannelUsers.TryGetValue(DiscordChannelId.ToString(), out var ChannelIds)) return;
                         var SocketType = Encoding.UTF8.GetBytes(SocketJSONType);
                         var SocketTypeBuffer = new ArraySegment<byte> (SocketType);
-                        await websocket.SendAsync(SocketTypeBuffer, WebSocketMessageType.Text, true, CancellationToken.None);
+
+                        foreach (var ChannelUserId in ChannelIds.Keys)
+                        {
+                            if (Manager.Users.TryGetValue(ChannelUserId, out var UserSocket)) {
+                               
+                                await UserSocket.SendAsync(SocketTypeBuffer, WebSocketMessageType.Text, true, CancellationToken.None);
+                            }
+                        }
                     }
 
                     break;
                 case WebSocketMessageType.Close:
+                    foreach (var k in websocketconns_.ChannelUsers)
+                    {
+                        k.Value.TryRemove(UserId.ToString(), out var _);
+                    }
+
                     await websocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
                     exit = true;
                     break;

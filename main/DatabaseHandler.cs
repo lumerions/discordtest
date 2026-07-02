@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
 
-namespace Internal.DatabaseHandler;
+namespace Internal.Database;
 public class DatabaseHandler
 {
     private readonly IConfiguration Configuration_;

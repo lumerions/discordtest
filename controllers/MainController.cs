@@ -5,7 +5,9 @@ using Microsoft.Extensions.Configuration;
 using System.Security.Claims;
 using Internal.Redis;
 using StackExchange.Redis;
+using Internal.Shared;
 using System.Linq;
+using System.Collections.Concurrent;
 
 namespace Internal.MainController;
 public class TypingRequest
@@ -15,21 +17,43 @@ public class TypingRequest
 
 [ApiController]
 [Route("/api")]
-public class MainController
+public class MainController : ControllerBase
 {
     private readonly RedisHandler Redis;
     private readonly IDatabase RedisDatabase;
 
-    public MainController(RedisHandler redis_)
+    private readonly WebSocketChannelIdConnections WebSocketChannelIds;
+
+    public MainController(RedisHandler redis_, WebSocketChannelIdConnections WebSocketChannelIds_)
     {
         Redis = redis_;
         RedisDatabase = redis_.GetRedisDatabase();
+        WebSocketChannelIds = WebSocketChannelIds_;
     }
 
-    [HttpGet("/GetTypingUsers")]
+    [HttpPost("/GetTypingUsers")]
     public async Task<List<string>> GetTypingUsers(TypingRequest request)
     {
         var TypingUsers = (await RedisDatabase.SetMembersAsync($"channel:{request.DiscordChannelId}")).Take(5).Select(x => (string) x).ToList();
         return TypingUsers;
+    }
+
+    [HttpPost("/ChannelInfo")]
+    public async Task<IActionResult> ChannelInfo([FromBody] TypingRequest request)
+    {
+        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var channelId = request.DiscordChannelId.ToString();
+
+        if (UserId == null) return BadRequest("UserId doesn't exist.");
+
+        var Users = WebSocketChannelIds.ChannelUsers.GetOrAdd(channelId, _ => new ConcurrentDictionary<string,byte>());
+
+        Users.TryAdd(UserId.ToString(), 0);
+        
+        // TODO
+        return Ok(new
+        {
+            success = true
+        });
     }
 }
