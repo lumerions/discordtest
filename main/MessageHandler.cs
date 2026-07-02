@@ -9,7 +9,6 @@ using Npgsql;
 
 namespace Internal.MessageHandler;
 
-
 public class MessagePayload
 {
     public Guid MessageId {get; set;}
@@ -25,6 +24,7 @@ class MessageHandler
         Manager = manager;
         DBHandler = databasehandler;
     }
+
 
     public async Task<bool> PrivateMessageUser(int MessagerUserId, int RecieverUserId, string Message, bool IsGroup)
     { 
@@ -77,6 +77,23 @@ class MessageHandler
             await using var cmd = new NpgsqlCommand("UPDATE server_messages SET edited = TRUE,message_content = @message_content WHERE id = @message_id RETURNING id;",conn);
             cmd.Parameters.AddWithValue("message_id", MessageId);
             cmd.Parameters.AddWithValue("message_content", NewMessage);
+            var result = await cmd.ExecuteScalarAsync();
+            return result != null && result != DBNull.Value;
+        } catch(Exception err) {
+            Console.WriteLine(err);
+            return false;
+        }
+    }
+
+    public async Task<bool> SendMessageInServer(string NewMessage, int MessagerUserId)
+    {
+        try
+        {
+            var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand("INSERT INTO server_messages (sender_id, message_content, private_message) VALUES (@sender_id, @message_content, @private_message) RETURNING id;",conn);
+            cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
+            cmd.Parameters.AddWithValue("message_content", NewMessage);
+            cmd.Parameters.AddWithValue("private_message", false);
             var result = await cmd.ExecuteScalarAsync();
             return result != null && result != DBNull.Value;
         } catch(Exception err) {

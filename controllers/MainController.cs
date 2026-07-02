@@ -22,9 +22,9 @@ public class MainController : ControllerBase
     private readonly RedisHandler Redis;
     private readonly IDatabase RedisDatabase;
 
-    private readonly WebSocketChannelIdConnections WebSocketChannelIds;
+    private readonly SharedMethods.WebSocketChannelIdConnections WebSocketChannelIds;
 
-    public MainController(RedisHandler redis_, WebSocketChannelIdConnections WebSocketChannelIds_)
+    public MainController(RedisHandler redis_, SharedMethods.WebSocketChannelIdConnections WebSocketChannelIds_)
     {
         Redis = redis_;
         RedisDatabase = redis_.GetRedisDatabase();

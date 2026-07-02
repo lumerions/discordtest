@@ -17,10 +17,6 @@ using Internal.Shared;
 
 namespace Internal.WebSocketController;
 
-public class WebSocketSessionManager {
-    public ConcurrentDictionary<string, WebSocket> Users = new();
-}
-
 public class SocketMessage
 {
     public string Type {get; set;}
@@ -33,15 +29,17 @@ public class SocketMessage
 [Route("/ws/{controller}")]
 public class WebSocketController : ControllerBase
 {
-    private readonly WebSocketSessionManager Manager;
+    private readonly SharedMethods.WebSocketSessionManager Manager;
     private readonly IDatabase RedisDatabase;
-    private readonly WebSocketChannelIdConnections websocketconns_;
+    private readonly SharedMethods.WebSocketChannelIdConnections websocketconns_;
+    private readonly SharedMethods Shared;
 
-    public WebSocketController(WebSocketSessionManager manager, RedisHandler redis_, WebSocketChannelIdConnections websocketconns)
+    public WebSocketController(SharedMethods.WebSocketSessionManager manager, RedisHandler redis_, SharedMethods.WebSocketChannelIdConnections  websocketconns, SharedMethods shared_)
     {
         Manager = manager;
         RedisDatabase = redis_.GetRedisDatabase();
         websocketconns_ = websocketconns;
+        Shared = shared_;
     }
 
     [HttpGet]
@@ -95,17 +93,7 @@ public class WebSocketController : ControllerBase
                                 break;
                         }
                         // TODO add actual auth lol
-                        if (!websocketconns_.ChannelUsers.TryGetValue(DiscordChannelId.ToString(), out var ChannelIds)) return;
-                        var SocketType = Encoding.UTF8.GetBytes(SocketJSONType);
-                        var SocketTypeBuffer = new ArraySegment<byte> (SocketType);
-
-                        foreach (var ChannelUserId in ChannelIds.Keys)
-                        {
-                            if (Manager.Users.TryGetValue(ChannelUserId, out var UserSocket)) {
-                               
-                                await UserSocket.SendAsync(SocketTypeBuffer, WebSocketMessageType.Text, true, CancellationToken.None);
-                            }
-                        }
+                        await Shared.SendSocketMessage(DiscordChannelId, SocketJSONType);
                     }
 
                     break;

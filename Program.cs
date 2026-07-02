@@ -6,6 +6,7 @@ using Internal.WebSocketController;
 using Internal.Database;
 using Internal.Redis;
 using Internal.MessageHandler;
+using Internal.Shared;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,10 +30,10 @@ builder.Services
         };
 });
 
-builder.Services.AddSingleton<WebSocketChannelIdConnections>();
+builder.Services.AddSingleton<SharedMethods.WebSocketChannelIdConnections>();
 builder.Services.AddSingleton<RedisHandler>();
 builder.Services.AddSingleton<DatabaseHandler>();
-builder.Services.AddSingleton<WebSocketSessionManager>();
+builder.Services.AddSingleton<SharedMethods.WebSocketSessionManager>();
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 builder.Services.AddAuthentication();
