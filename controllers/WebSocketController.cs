@@ -12,6 +12,7 @@ using System.Text.Json;
 using Internal.Redis;
 using System.Net.Sockets;
 using StackExchange.Redis;
+using Internal.MainController;
 
 namespace Internal.WebSocketController;
 
@@ -49,14 +50,16 @@ public class WebSocketController : ControllerBase
         }
 
         var UserId = HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var Username = HttpContext.User.FindFirst(ClaimTypes.Name)?.Value;
 
         if (string.IsNullOrWhiteSpace(UserId)) return;
-        
+        if (string.IsNullOrWhiteSpace(Username)) return;
+
         WebSocket websocket = await HttpContext.WebSockets.AcceptWebSocketAsync();
 
         try {
 
-        Manager.Users[UserId.ToString()] = websocket;
+        Manager.Users.TryAdd(UserId, websocket);
         var buffer = new byte[1024  * 4];
 
         while (websocket.State == WebSocketState.Open)
@@ -71,21 +74,33 @@ public class WebSocketController : ControllerBase
                     var SocketJSON = JsonSerializer.Deserialize<SocketMessage>(text);
 
                     if (text.StartsWith("{")) {
-                        switch (SocketJSON?.Type)
+                        var DiscordChannelId = SocketJSON?.DiscordChannelId;
+                        var SocketJSONType = SocketJSON?.Type;
+
+                        if (DiscordChannelId == null) break;
+                        if (SocketJSONType == null) break;
+
+                        var RedisKey = $"channels:{DiscordChannelId.ToString()}";
+                        var fullKey = DiscordChannelId.ToString() + ";" + Username.ToString() + ";" + UserId.ToString();
+                        switch (SocketJSONType)
                         {
                             case "Typing":
-                                await RedisDatabase.StringSetAsync(SocketJSON?.DiscordChannelId.ToString() + UserId.ToString(), true);
+                                await RedisDatabase.SetAddAsync(RedisKey, fullKey);
                                 break;
                             case "NoTyping":
-                                await RedisDatabase.KeyDeleteAsync(SocketJSON?.DiscordChannelId.ToString() + UserId.ToString());
+                                await RedisDatabase.SetRemoveAsync(RedisKey, fullKey);
                                 break;
                         }
+                        // TODO add actual auth lol
+                        // TODO send message to all users viewing this channel and send a message telling them to poll for the current users typing
+                        var SocketType = Encoding.UTF8.GetBytes(SocketJSONType);
+                        var SocketTypeBuffer = new ArraySegment<byte> (SocketType);
+                        await websocket.SendAsync(SocketTypeBuffer, WebSocketMessageType.Text, true, CancellationToken.None);
                     }
 
                     break;
                 case WebSocketMessageType.Close:
                     await websocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
-                    websocket.Dispose();
                     exit = true;
                     break;
             }

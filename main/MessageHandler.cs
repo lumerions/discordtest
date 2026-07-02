@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Internal.WebSocketController;
 using Internal.DatabaseHandler;
-using Internal.RedisHandler;
+using Internal.Redis;
 using Npgsql;
 
 public class MessagePayload
