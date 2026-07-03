@@ -91,12 +91,34 @@ CREATE TABLE IF NOT EXISTS server_roles (
     color INTEGER, 
     position INT NOT NULL DEFAULT 0,
     permissions BIGINT NOT NULL DEFAULT 0,
-    seperated BOOLEAN NOT NULL,
+    separated BOOLEAN NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_server_members_user
-ON server_members(user_id);
+CREATE TABLE IF NOT EXISTS server_bans (
+    id BIGSERIAL PRIMARY KEY,
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    moderator_id INTEGER NOT NULL REFERENCES users(id),
+    reason TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMP NULL,
+    UNIQUE (server_id, user_id)
+);
 
-CREATE INDEX IF NOT EXISTS idx_server_members_server
-ON server_members(server_id);
+CREATE TABLE IF NOT EXISTS server_mutes (
+    id BIGSERIAL PRIMARY KEY,
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    moderator_id INTEGER NOT NULL REFERENCES users(id),
+    reason TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMP NOT NULL,
+    UNIQUE (server_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_server_members_user ON server_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_server_members_server ON server_members(server_id);
+CREATE INDEX IF NOT EXISTS idx_bans_guild_id ON server_bans (guild_id);
+CREATE INDEX IF NOT EXISTS idx_bans_user_id ON server_bans (user_id);
+CREATE INDEX IF NOT EXISTS idx_bans_guild_user ON server_bans (guild_id, user_id);

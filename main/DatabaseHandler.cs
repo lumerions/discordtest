@@ -19,4 +19,14 @@ public class DatabaseHandler
         await conn.OpenAsync();
         return conn;
     }
+
+    public async Task<int> ExecuteAsync(string sql, Action<NpgsqlCommand> paramBuilder)
+    {
+        await using var conn = await GetConnection();
+        await using var cmd = new NpgsqlCommand(sql, conn);
+
+        paramBuilder(cmd);
+
+        return await cmd.ExecuteNonQueryAsync();
+    }
 }
