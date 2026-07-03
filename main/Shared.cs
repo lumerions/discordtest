@@ -52,7 +52,6 @@ public class SharedMethods
                             await UserSocket.CloseAsync(WebSocketCloseStatus.InternalServerError, "Internal Socket Error.", CancellationToken.None);
                         }
                     }
-                    catch {}
                     finally
                     {
                         UserSocket.Dispose();

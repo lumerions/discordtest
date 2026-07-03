@@ -47,3 +47,56 @@ CREATE TABLE IF NOT EXISTS server_message_attachments (
     message_id UUID NOT NULL REFERENCES server_messages(id) ON DELETE CASCADE,
     url TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS servers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    server_name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS channels (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    type VARCHAR(20) NOT NULL, -- 'text', 'voice', 'category'
+    position INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS server_boosts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    started_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS server_attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    url TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS server_members (
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    nickname VARCHAR(32),
+    joined_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (server_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS server_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name VARCHAR(32) NOT NULL,
+    color INTEGER, 
+    position INT NOT NULL DEFAULT 0,
+    permissions BIGINT NOT NULL DEFAULT 0,
+    seperated BOOLEAN NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_server_members_user
+ON server_members(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_server_members_server
+ON server_members(server_id);

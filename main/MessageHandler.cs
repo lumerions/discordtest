@@ -5,6 +5,7 @@ using System.Text.Json;
 using Internal.WebSocketController;
 using Internal.Database;
 using Internal.Redis;
+using Internal.Shared;
 using Npgsql;
 
 namespace Internal.MessageHandler;
@@ -16,10 +17,10 @@ public class MessagePayload
 }
 class MessageHandler
 {
-    private readonly WebSocketSessionManager Manager;
+    private readonly SharedMethods.WebSocketSessionManager Manager;
     private readonly DatabaseHandler DBHandler;
 
-    public MessageHandler(WebSocketSessionManager manager, DatabaseHandler databasehandler)
+    public MessageHandler(SharedMethods.WebSocketSessionManager manager, DatabaseHandler databasehandler)
     {
         Manager = manager;
         DBHandler = databasehandler;
@@ -30,7 +31,7 @@ class MessageHandler
     { 
         try
         {
-            var conn = await DBHandler.GetConnection();
+            await using var conn = await DBHandler.GetConnection();
             await using var cmd = new NpgsqlCommand("INSERT INTO server_messages (sender_id, message_content, private_message) VALUES (@sender_id, @message_content, @private_message) RETURNING id;",conn);
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
             cmd.Parameters.AddWithValue("message_content", Message);
@@ -73,7 +74,7 @@ class MessageHandler
     {
         try
         {
-            var conn = await DBHandler.GetConnection();
+            await using var conn = await DBHandler.GetConnection();
             await using var cmd = new NpgsqlCommand("UPDATE server_messages SET edited = TRUE,message_content = @message_content WHERE id = @message_id RETURNING id;",conn);
             cmd.Parameters.AddWithValue("message_id", MessageId);
             cmd.Parameters.AddWithValue("message_content", NewMessage);
@@ -89,7 +90,7 @@ class MessageHandler
     {
         try
         {
-            var conn = await DBHandler.GetConnection();
+            await using var conn = await DBHandler.GetConnection();
             await using var cmd = new NpgsqlCommand("INSERT INTO server_messages (sender_id, message_content, private_message) VALUES (@sender_id, @message_content, @private_message) RETURNING id;",conn);
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
             cmd.Parameters.AddWithValue("message_content", NewMessage);
