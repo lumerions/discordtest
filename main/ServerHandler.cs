@@ -2,6 +2,25 @@ using System;
 using Internal.Roles;
 using Internal.Database;
 using Npgsql;
+
+public record Role(
+    int RoleId,
+    string RoleName,
+    int Color,
+    long Position,
+    bool Separated
+);
+
+public record Message(
+    Guid id,
+    int sender_id,
+    string? message_content,
+    DateTime created_at,
+    bool edited,
+    bool private_message
+);
+
+
 class Server
 {
     private readonly DatabaseHandler DBHandler;
@@ -65,7 +84,8 @@ class Server
             joinServerCommand.Parameters.AddWithValue("nickname", JoinerUsername);
             var result = await joinServerCommand.ExecuteScalarAsync();
             var success = result != null && result != DBNull.Value;
-            return "Joined Server Successfully.";
+            var returnMessage = success ? "Joined Server Successfully." : "Could not join server please try again later.";
+            return returnMessage;
         } catch(Exception err) {
             Console.WriteLine(err);
             return "Internal Server Error.";
@@ -146,6 +166,126 @@ class Server
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
+        }
+    }
+
+    public async Task<bool> CreateServerChannel(int ServerId, string ChannelType, int Position)
+    {
+        try
+        {
+            return await DBHandler.ExecuteAsync(@"
+                INSERT INTO server_channels (
+                    server_id,
+                    type,
+                    position
+                )
+                VALUES (
+                    @server_id,
+                    @type,
+                    @position
+                );
+            ", cmd =>
+            {
+                cmd.Parameters.AddWithValue("server_id", ServerId);
+                cmd.Parameters.AddWithValue("type", ChannelType);
+                cmd.Parameters.AddWithValue("position", Position);
+            }).ContinueWith(t => t.Result > 0);
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return false;
+        }
+    }
+
+    public async Task<List<Role>> ViewRoles(int ServerId)
+    {
+        try
+        {
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(@"SELECT id, name, color, position, separated FROM server_roles WHERE server_id = @server_id",conn);
+            cmd.Parameters.AddWithValue("server_id", ServerId);
+            await using var reader = await cmd.ExecuteReaderAsync();
+            var Roles = new List<Role>();
+            while (await reader.ReadAsync())
+            {
+                var RoleId = reader.GetInt32(0);
+                var RoleName = reader.GetString(1);
+                var Color = reader.GetInt32(2);
+                var Position = reader.GetInt64(3);
+                var Separated = reader.GetBoolean(4);
+                Roles.Add(new Role
+                (
+                    RoleId,
+                    RoleName,
+                    Color,
+                    Position,
+                    Separated
+                ));
+            }
+
+            return Roles;
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return new List<Role>();
+        }
+    }
+
+
+    public async Task<List<Message>> SearchMessagesByWord(int ServerId, string? Search, Guid ChannelId, DateTime? cursorCreatedAt, Guid? cursorId)
+    {
+        try
+        {
+            string SQL = cursorCreatedAt is null && cursorId is null
+                ? @"SELECT id, sender_id, message_content, created_at, edited, private_message
+                    FROM server_messages
+                    WHERE channel_id = @channel_id
+                    AND message_content LIKE CONCAT('%', @search, '%')
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 50;"
+                : @"SELECT id, sender_id, message_content, created_at, edited, private_message
+                    FROM server_messages
+                    WHERE channel_id = @channel_id
+                    AND message_content LIKE CONCAT('%', @search, '%')
+                    AND (created_at, id) < (@created_at, @id)
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 50;";
+
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(SQL,conn);
+            if (cursorCreatedAt != null && cursorId != null)
+            {
+                cmd.Parameters.AddWithValue("created_at", cursorCreatedAt);
+                cmd.Parameters.AddWithValue("id", cursorId);
+            }
+
+            cmd.Parameters.AddWithValue("channel_id", ChannelId);
+            cmd.Parameters.AddWithValue("search", Search);
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+            var Messages = new List<Message>();
+            while (await reader.ReadAsync())
+            {
+                var id = reader.GetGuid(0);
+                var sender_id = reader.GetInt32(1);
+                var message_content = reader.GetString(2);
+                var created_at = reader.GetDateTime(3);
+                var edited = reader.GetBoolean(4);
+                var private_message = reader.GetBoolean(5);
+
+                Messages.Add(new Message
+                (
+                    id,
+                    sender_id,
+                    message_content,
+                    created_at,
+                    edited,
+                    private_message
+                ));
+            }
+
+            return Messages;
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return new List<Message>();
         }
     }
 }

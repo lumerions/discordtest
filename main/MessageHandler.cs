@@ -14,28 +14,41 @@ public class MessagePayload
 {
     public Guid MessageId {get; set;}
     public int UserId {get; set;}
+    public string Message {get; set;}
+}
+
+public class NewMessagePayload
+{
+    public Guid MessageId {get; set;}
+    public Guid ChannelId {get; set;}
+
+    public string Message {get; set;}
 }
 class MessageHandler
 {
     private readonly SharedMethods.WebSocketSessionManager Manager;
     private readonly DatabaseHandler DBHandler;
+    private readonly SharedMethods Shared;
 
-    public MessageHandler(SharedMethods.WebSocketSessionManager manager, DatabaseHandler databasehandler)
+    public MessageHandler(SharedMethods.WebSocketSessionManager manager, DatabaseHandler databasehandler, SharedMethods shared_)
     {
         Manager = manager;
         DBHandler = databasehandler;
+        Shared = shared_;
     }
 
 
-    public async Task<bool> PrivateMessageUser(int MessagerUserId, int RecieverUserId, string Message, bool IsGroup)
+    public async Task<bool> PrivateMessageUser(int MessagerUserId, int RecieverUserId, string Message, int ChannelId)
     { 
         try
         {
             await using var conn = await DBHandler.GetConnection();
-            await using var cmd = new NpgsqlCommand("INSERT INTO server_messages (sender_id, message_content, private_message) VALUES (@sender_id, @message_content, @private_message) RETURNING id;",conn);
+            await using var cmd = new NpgsqlCommand("INSERT INTO server_messages (sender_id, message_content, private_message, channel_id) VALUES (@sender_id, @message_content, @private_message, @channel_id) RETURNING id;",conn);
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
             cmd.Parameters.AddWithValue("message_content", Message);
             cmd.Parameters.AddWithValue("private_message", true);
+            cmd.Parameters.AddWithValue("channel_id", ChannelId);
+
             var result = await cmd.ExecuteScalarAsync();
 
             if (result == null || result == DBNull.Value)
@@ -52,7 +65,8 @@ class MessageHandler
                     var ResponseJSON = JsonSerializer.Serialize(new MessagePayload
                     {
                         MessageId = MessageId,
-                        UserId = MessagerUserId
+                        UserId = MessagerUserId,
+                        Message = Message
                     });
                     var ResponseBytes = Encoding.UTF8.GetBytes(ResponseJSON);
                     await UserSocket.SendAsync(new ArraySegment<byte> (ResponseBytes), WebSocketMessageType.Text, true, CancellationToken.None);
@@ -86,17 +100,33 @@ class MessageHandler
         }
     }
 
-    public async Task<bool> SendMessageInServer(string NewMessage, int MessagerUserId)
+    public async Task<bool> SendMessageInServer(string NewMessage, int MessagerUserId, Guid ChannelId)
     {
         try
         {
             await using var conn = await DBHandler.GetConnection();
-            await using var cmd = new NpgsqlCommand("INSERT INTO server_messages (sender_id, message_content, private_message) VALUES (@sender_id, @message_content, @private_message) RETURNING id;",conn);
+            await using var cmd = new NpgsqlCommand("INSERT INTO server_messages (sender_id, message_content, private_message, channel_id) VALUES (@sender_id, @message_content, @private_message, @channel_id) RETURNING id;",conn);
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
             cmd.Parameters.AddWithValue("message_content", NewMessage);
             cmd.Parameters.AddWithValue("private_message", false);
+            cmd.Parameters.AddWithValue("channel_id", ChannelId);
             var result = await cmd.ExecuteScalarAsync();
-            return result != null && result != DBNull.Value;
+            var success = result != null && result != DBNull.Value;
+            if (success)
+            {
+                Guid MessageId = (Guid) result;
+
+                var allMessageJson = JsonSerializer.Serialize(new NewMessagePayload
+                {
+                    Message = NewMessage,
+                    ChannelId = ChannelId,
+                    MessageId = MessageId
+                });
+
+                await Shared.SendSocketMessage(ChannelId, allMessageJson);
+            }
+
+            return success;
         } catch(Exception err) {
             Console.WriteLine(err);
             return false;

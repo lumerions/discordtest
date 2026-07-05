@@ -12,6 +12,16 @@ CREATE TABLE IF NOT EXISTS users (
     is_banned SMALLINT NOT NULL DEFAULT 0 -- 0 = Fine 1 = Banned 2 = Account Deleted
 );
 
+CREATE TABLE IF NOT EXISTS avatar_uploads (
+    id UUID PRIMARY KEY NOT NULL,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    file_name VARCHAR(255) NOT NULL,
+    file_size BIGINT NOT NULL,
+    mime_type VARCHAR(100),
+    storage_path TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS dm_conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     is_group BOOLEAN NOT NULL DEFAULT FALSE,
@@ -33,14 +43,6 @@ CREATE TABLE IF NOT EXISTS dm_messages (
     edited BOOLEAN DEFAULT FALSE
 );
 
-CREATE TABLE IF NOT EXISTS server_messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sender_id INTEGER NOT NULL,
-    message_content TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    edited BOOLEAN DEFAULT FALSE,
-    private_message BOOLEAN DEFAULT FALSE
-);
 
 CREATE TABLE IF NOT EXISTS server_message_attachments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -55,7 +57,7 @@ CREATE TABLE IF NOT EXISTS servers (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS channels (
+CREATE TABLE IF NOT EXISTS server_channels (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
@@ -117,8 +119,19 @@ CREATE TABLE IF NOT EXISTS server_mutes (
     UNIQUE (server_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS server_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    channel_id NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
+    sender_id INTEGER NOT NULL,
+    message_content TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    edited BOOLEAN DEFAULT FALSE,
+    private_message BOOLEAN DEFAULT FALSE
+);
+
 CREATE INDEX IF NOT EXISTS idx_server_members_user ON server_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_server_members_server ON server_members(server_id);
 CREATE INDEX IF NOT EXISTS idx_bans_guild_id ON server_bans (guild_id);
 CREATE INDEX IF NOT EXISTS idx_bans_user_id ON server_bans (user_id);
 CREATE INDEX IF NOT EXISTS idx_bans_guild_user ON server_bans (guild_id, user_id);
+CREATE INDEX IF NOT EXISTS CONCURRENTLY idx_server_messages_created_at_id ON server_messages (created_at DESC, id DESC);

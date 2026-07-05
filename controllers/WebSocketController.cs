@@ -22,7 +22,7 @@ public class SocketMessage
     public string Type {get; set;}
     public int UserId {get; set;}
     public string? Message {get; set;}
-    public int DiscordChannelId {get; set;}
+    public Guid DiscordChannelId {get; set;}
 }
 
 [ApiController]

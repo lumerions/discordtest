@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using Internal.Redis;
 using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.VisualBasic;
 
 namespace Internal.Shared;
 
@@ -31,7 +32,7 @@ public class SharedMethods
         public ConcurrentDictionary<string, WebSocket> Users = new();
     }
 
-    public async Task SendSocketMessage(int? DiscordChannelId, string? SocketJSONType)
+    public async Task SendSocketMessage(Guid? DiscordChannelId, string? SocketJSONType)
     {
         if (!websocketconns_.ChannelUsers.TryGetValue(DiscordChannelId.ToString(), out var ChannelIds)) return;
         var SocketType = Encoding.UTF8.GetBytes(SocketJSONType);
@@ -67,5 +68,38 @@ public class SharedMethods
         }
 
         await Task.WhenAll(MessageTasks);
+    }
+
+    public static bool AllowedExtension(string Extension)
+    {
+        var AllowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".webp"
+        };
+
+        if (!AllowedExtensions.Contains(Extension)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public static bool AllowedMime(string Mime)
+    {
+        var AllowedMime = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "image/jpeg",
+            "image/png",
+            "image/webp"
+        };
+
+        if (!AllowedMime.Contains(Mime)) {
+            return false;
+        }
+
+        return true;
     }
 }

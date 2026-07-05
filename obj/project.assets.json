@@ -765,23 +765,23 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\asdfg\\.nuget\\packages\\": {},
+    "C:\\Users\\Admin\\.nuget\\packages\\": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\asdfg\\OneDrive\\Desktop\\discordtest\\discordtest.csproj",
+      "projectUniqueName": "C:\\Users\\Admin\\Desktop\\discordtest\\discordtest.csproj",
       "projectName": "discordtest",
-      "projectPath": "C:\\Users\\asdfg\\OneDrive\\Desktop\\discordtest\\discordtest.csproj",
-      "packagesPath": "C:\\Users\\asdfg\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\asdfg\\OneDrive\\Desktop\\discordtest\\obj\\",
+      "projectPath": "C:\\Users\\Admin\\Desktop\\discordtest\\discordtest.csproj",
+      "packagesPath": "C:\\Users\\Admin\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\Admin\\Desktop\\discordtest\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
       ],
       "configFilePaths": [
-        "C:\\Users\\asdfg\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Users\\Admin\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
@@ -851,7 +851,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.301/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.314/PortableRuntimeIdentifierGraph.json"
       }
     }
   }
