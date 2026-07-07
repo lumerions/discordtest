@@ -32,9 +32,19 @@ public class SharedMethods
         public ConcurrentDictionary<string, WebSocket> Users = new();
     }
 
-    public async Task SendSocketMessage(Guid? DiscordChannelId, string? SocketJSONType)
+    public async Task SendSocketMessage(Guid? DiscordChannelId, string? SocketJSONType, bool? ChannelIdsProvided = null, ConcurrentDictionary<string, byte>? ChannelIdDict = null)
     {
-        if (!websocketconns_.ChannelUsers.TryGetValue(DiscordChannelId.ToString(), out var ChannelIds)) return;
+        ConcurrentDictionary<string, byte> ChannelIds;
+
+        if (ChannelIdsProvided == true)
+        {
+            ChannelIds = ChannelIdDict;
+        } else
+        {
+            if (!websocketconns_.ChannelUsers.TryGetValue(DiscordChannelId.ToString(), out ChannelIds))
+                return;
+        }
+
         var SocketType = Encoding.UTF8.GetBytes(SocketJSONType);
         var SocketTypeBuffer = new ArraySegment<byte> (SocketType);
         var MessageTasks = new List<Task>();

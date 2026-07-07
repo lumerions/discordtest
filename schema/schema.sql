@@ -57,13 +57,6 @@ CREATE TABLE IF NOT EXISTS servers (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS server_channels (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
-    type VARCHAR(20) NOT NULL, -- 'text', 'voice', 'category'
-    position INT NOT NULL DEFAULT 0
-);
 
 CREATE TABLE IF NOT EXISTS server_boosts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -88,6 +81,7 @@ CREATE TABLE IF NOT EXISTS server_members (
 
 CREATE TABLE IF NOT EXISTS server_roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
     name VARCHAR(32) NOT NULL,
     color INTEGER, 
@@ -95,6 +89,15 @@ CREATE TABLE IF NOT EXISTS server_roles (
     permissions BIGINT NOT NULL DEFAULT 0,
     separated BOOLEAN NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS server_channels (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    type VARCHAR(20) NOT NULL, -- 'text', 'voice', 'category'
+    position INT NOT NULL DEFAULT 0,
+    rules_channel BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS server_bans (
@@ -127,6 +130,12 @@ CREATE TABLE IF NOT EXISTS server_messages (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     edited BOOLEAN DEFAULT FALSE,
     private_message BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS server_message_mentions (
+    message_id UUID NOT NULL REFERENCES server_messages(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (message_id, user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_server_members_user ON server_members(user_id);

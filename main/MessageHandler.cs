@@ -7,6 +7,12 @@ using Internal.Database;
 using Internal.Redis;
 using Internal.Shared;
 using Npgsql;
+using System.IO.Pipelines;
+using StackExchange.Redis;
+using Internal.Roles;
+using Microsoft.AspNetCore.Authorization;
+using System.Collections.Concurrent;
+using System.Data.SqlTypes;
 
 namespace Internal.MessageHandler;
 
@@ -16,6 +22,13 @@ public class MessagePayload
     public int UserId {get; set;}
     public string Message {get; set;}
 }
+
+public class NewMessageHerePayload
+{
+    public bool NotificationUpdate {get; set;}
+    public Guid ChannelId {get; set;}
+}
+
 
 public class NewMessagePayload
 {
@@ -105,28 +118,113 @@ class MessageHandler
         try
         {
             await using var conn = await DBHandler.GetConnection();
-            await using var cmd = new NpgsqlCommand("INSERT INTO server_messages (sender_id, message_content, private_message, channel_id) VALUES (@sender_id, @message_content, @private_message, @channel_id) RETURNING id;",conn);
+            await using var cmd = new NpgsqlCommand(@"
+                WITH inserted AS (
+                    INSERT INTO server_messages (
+                        sender_id,
+                        message_content,
+                        private_message,
+                        channel_id
+                    )
+                    VALUES (
+                        @sender_id,
+                        @message_content,
+                        @private_message,
+                        @channel_id
+                    )
+                    RETURNING id, channel_id, sender_id
+                )
+                SELECT
+                    inserted.id,
+                    COALESCE(BIT_OR(sr.permissions), 0) AS permissions,
+                    sc.server_id,
+                    ARRAY_AGG(DISTINCT sc2.id ORDER BY sc2.position, sc2.id) AS channel_ids
+                FROM inserted
+                JOIN server_channels sc
+                    ON sc.id = inserted.channel_id
+                LEFT JOIN server_roles sr
+                    ON sr.server_id = sc.server_id
+                AND sr.user_id = inserted.sender_id
+                JOIN server_channels sc2
+                    ON sc2.server_id = sc.server_id
+                GROUP BY inserted.id, sc.server_id;
+            ", conn);
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
             cmd.Parameters.AddWithValue("message_content", NewMessage);
             cmd.Parameters.AddWithValue("private_message", false);
             cmd.Parameters.AddWithValue("channel_id", ChannelId);
-            var result = await cmd.ExecuteScalarAsync();
-            var success = result != null && result != DBNull.Value;
-            if (success)
+            await using var reader = await cmd.ExecuteReaderAsync();
+
+            if (!await reader.ReadAsync())
             {
-                Guid MessageId = (Guid) result;
-
-                var allMessageJson = JsonSerializer.Serialize(new NewMessagePayload
-                {
-                    Message = NewMessage,
-                    ChannelId = ChannelId,
-                    MessageId = MessageId
-                });
-
-                await Shared.SendSocketMessage(ChannelId, allMessageJson);
+                return false;
             }
 
-            return success;
+            var MessageId = reader.GetGuid(0);
+            var MessagePermissionNumber = reader.GetInt64(1);
+            var ServerId = reader.GetGuid(2);
+            HashSet<Guid> ChannelIds = reader.GetFieldValue<Guid[]>(3).ToHashSet();
+            Permissions Perm = (Permissions) MessagePermissionNumber;
+            var CanPing = (Perm & Permissions.MentionEveryone) != 0;
+
+            if (NewMessage == "@everyone" || NewMessage == "@here")
+            {
+                if (!CanPing) return false;
+
+                await reader.DisposeAsync();
+
+                string SQL = NewMessage == "@here"
+                ? @"INSERT INTO server_message_mentions (message_id, user_id)
+                    SELECT
+                        @message_id,
+                        sm.user_id
+                    FROM server_members sm
+                    WHERE sm.server_id = @server_id
+                    AND sm.user_id = ANY(@user_ids);"
+                : @"INSERT INTO server_message_mentions (message_id, user_id)
+                    SELECT
+                        @message_id,
+                        sm.user_id
+                    FROM server_members sm
+                    WHERE sm.server_id = @server_id;";
+
+                await using var InsertNewNotificationsCmd = new NpgsqlCommand(SQL, conn);
+
+                InsertNewNotificationsCmd.Parameters.AddWithValue("message_id", MessageId);
+                InsertNewNotificationsCmd.Parameters.AddWithValue("server_id", ServerId);
+
+                if (NewMessage == "@here")
+                {
+                    var AllOnlineUserIdsDict = new ConcurrentDictionary<string, byte>(     
+                        Manager.Users.Keys.Select(id => new KeyValuePair<string, byte>(id, 0))
+                    );
+
+                    InsertNewNotificationsCmd.Parameters.AddWithValue("user_ids", Manager.Users.Keys.ToArray());
+                }
+
+                await InsertNewNotificationsCmd.ExecuteNonQueryAsync();     
+
+
+                var MessageHereJson = JsonSerializer.Serialize(new NewMessageHerePayload
+                {
+                    NotificationUpdate = true,
+                    ChannelId = ChannelId
+                });
+
+                await Shared.SendSocketMessage(null, MessageHereJson);
+            }
+
+
+            var allMessageJson = JsonSerializer.Serialize(new NewMessagePayload
+            {
+                Message = NewMessage,
+                ChannelId = ChannelId,
+                MessageId = MessageId
+            });
+
+            await Shared.SendSocketMessage(ChannelId, allMessageJson);
+            
+            return true;
         } catch(Exception err) {
             Console.WriteLine(err);
             return false;
