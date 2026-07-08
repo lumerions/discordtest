@@ -22,6 +22,16 @@ CREATE TABLE IF NOT EXISTS avatar_uploads (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS role_icon_uploads (
+    id UUID PRIMARY KEY NOT NULL,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    file_name VARCHAR(255) NOT NULL,
+    file_size BIGINT NOT NULL,
+    mime_type VARCHAR(100),
+    storage_path TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS dm_conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     is_group BOOLEAN NOT NULL DEFAULT FALSE,
@@ -56,7 +66,6 @@ CREATE TABLE IF NOT EXISTS servers (
     server_name VARCHAR(100) NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
 );
-
 
 CREATE TABLE IF NOT EXISTS server_boosts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -136,6 +145,19 @@ CREATE TABLE IF NOT EXISTS server_message_mentions (
     message_id UUID NOT NULL REFERENCES server_messages(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (message_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS server_invites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code VARCHAR(32) NOT NULL UNIQUE,
+    channel_id UUID REFERENCES server_channels(id) ON DELETE SET NULL,
+    max_uses SMALLINT, -- 32000 = unlimited
+    uses SMALLINT NOT NULL DEFAULT 0, 
+    expires_at TIMESTAMP,
+    is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_server_members_user ON server_members(user_id);

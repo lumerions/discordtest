@@ -3,9 +3,15 @@ using System.IO;
 using System.Security.Claims;
 using System.Threading;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Internal.Database;
 using Internal.Shared;
 using Microsoft.Extensions.Options;
+
+public class UploadImage
+{
+    public string UploadType;
+}
 
 [ApiController]
 [Route("/api/users")]
@@ -18,13 +24,24 @@ public class UsersController : ControllerBase
         DBHandler = DBHandler_;
     }
 
+    [EnableRateLimiting("api")]
     [HttpPost]
-    public async Task<IActionResult> UploadAvatarImage(IFormFile file)
+    public async Task<IActionResult> UploadAvatarImage([FromBody] UploadImage request, IFormFile file)
     {
-
-
         try
         {
+            var TypeInfo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                {"Avatar", "avatar_uploads"},
+                {"RoleIcons", "role_icon_uploads"}
+            };
+
+            var UploadType = request.UploadType;
+            if (!TypeInfo.TryGetValue(UploadType, out var TypeInfoValue))
+            {
+                return BadRequest("Invalid upload type.");
+            }
+
             var AvatarFileUploadLimit = 8388608;
             var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
@@ -37,17 +54,17 @@ public class UsersController : ControllerBase
             if (!SharedMethods.AllowedExtension(Extension)) return BadRequest("This file extension isn't supported.");
             if (!SharedMethods.AllowedMime(file.ContentType)) return BadRequest("This mime type isn't supported.");
 
-            var AvatarImagesPath = Path.Combine(Directory.GetCurrentDirectory(), "AvatarUploads");
+            var AvatarImagesPath = Path.Combine(Directory.GetCurrentDirectory(), TypeInfoValue);
             Directory.CreateDirectory(AvatarImagesPath);       
             var NewAvatarImageId = Guid.NewGuid(); 
             var NewAvatarImageName = $"{NewAvatarImageId}{Extension}";
             var FullPath = Path.Combine(AvatarImagesPath, NewAvatarImageName);
-            var StoragePath = $"AvatarUploads/{NewAvatarImageName}";
+            var StoragePath = $"{TypeInfoValue}/{NewAvatarImageName}";
             await using var stream = new FileStream(FullPath, FileMode.CreateNew);
             await file.CopyToAsync(stream);
 
-            var Success = await DBHandler.ExecuteAsync(@"
-                INSERT INTO avatar_uploads (
+            var Success = await DBHandler.ExecuteAsync($"""
+                INSERT INTO {TypeInfoValue} (
                     id,
                     user_id,
                     file_name,
@@ -63,7 +80,7 @@ public class UsersController : ControllerBase
                     @mime_type,
                     @storage_path
                 );
-            ", cmd => 
+            """, cmd => 
             {
                 cmd.Parameters.AddWithValue("id", NewAvatarImageId);
                 cmd.Parameters.AddWithValue("user_id", UserId);

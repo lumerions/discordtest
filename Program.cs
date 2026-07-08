@@ -2,11 +2,11 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using Internal.WebSocketController;
 using Internal.Database;
 using Internal.Redis;
-using Internal.MessageHandler;
+using System.Threading.RateLimiting;
 using Internal.Shared;
+using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +28,17 @@ builder.Services
                 Encoding.UTF8.GetBytes(builder.Configuration["Main:JWTKEY"] ?? throw new Exception("JWTKey missing"))
             )
         };
+});
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("api", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 100;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueLimit = 0;
+        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+    });
 });
 
 builder.Services.AddSingleton<SharedMethods.WebSocketChannelIdConnections>();

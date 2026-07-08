@@ -28,6 +28,80 @@ class Server
     {
         DBHandler = handler_;
     }
+
+    public async Task<bool> DeleteServer(Guid ServerId)
+    {
+        try
+        {
+            return await DBHandler.ExecuteAsync($"""
+                DELETE FROM servers WHERE id = @id
+            """, cmd =>
+            {
+                cmd.Parameters.AddWithValue("id", ServerId);
+            }).ContinueWith(r => r.Result > 0);
+        } catch(Exception err) {
+            Console.WriteLine(err);
+            return false;
+        }
+    }
+
+    public async Task<bool> CreateNewServer(string ServerName, int OwnerUserId, string OwnerName)
+    {
+        try
+        {
+            return await DBHandler.ExecuteAsync($"""
+                WITH new_server AS (
+                    INSERT INTO servers (server_owner_id, server_name)
+                    SELECT
+                        @server_owner_id,
+                        @server_name
+                    WHERE (
+                        SELECT COUNT(*)
+                        FROM servers
+                        WHERE server_owner_id = @server_owner_id
+                    ) < 101
+                    RETURNING id
+                ),
+                new_member AS (
+                    INSERT INTO server_members (server_id, user_id, nickname)
+                    SELECT
+                        id,
+                        @server_owner_id,
+                        @nickname
+                    FROM new_server
+                ),
+                new_channels AS (
+                    INSERT INTO server_channels (server_id, name, type, position, rules_channel)
+                    SELECT
+                        id,
+                        'general',
+                        'text',
+                        0,
+                        FALSE
+                    FROM new_server
+
+                    UNION ALL
+
+                    SELECT
+                        id,
+                        'rules',
+                        'text',
+                        1,
+                        TRUE
+                    FROM new_server
+                )
+                SELECT id FROM new_server;
+            """, cmd =>
+            {
+                cmd.Parameters.AddWithValue("server_owner_id", OwnerUserId);
+                cmd.Parameters.AddWithValue("server_name", ServerName);
+                cmd.Parameters.AddWithValue("nickname", OwnerName);
+            }).ContinueWith(r => r.Result > 0);
+        } catch(Exception err) {
+            Console.WriteLine(err);
+            return false;
+        }
+    }
     public async Task<bool> CreateServerRole(string RoleName, int Color, bool Separated, int Position, long Permissions)
     {
         try
@@ -47,20 +121,50 @@ class Server
         }
     }
 
-    public async Task<string> JoinServer(int ServerId, int JoinerId, string JoinerUsername)
+    public async Task<string> JoinServer(int ServerId, int JoinerId, string JoinerUsername, Guid InviteCode)
     {
         try
         {
             await using var conn = await DBHandler.GetConnection();
-            await using var IsBannedCommand = new NpgsqlCommand("SELECT reason FROM server_bans WHERE user_id = @user_id AND server_id = @server_id;",conn);
+            await using var IsBannedCommand = new NpgsqlCommand(@"
+                SELECT reason
+                FROM server_bans
+                WHERE user_id = @user_id
+                AND server_id = @server_id;
+
+                SELECT is_revoked
+                FROM server_invites
+                WHERE id = @InviteCode
+                AND expires_at > NOW()
+                AND (max_uses = 32000 OR uses < max_uses);
+            ", conn);
+
             IsBannedCommand.Parameters.AddWithValue("user_id", JoinerId);
             IsBannedCommand.Parameters.AddWithValue("server_id", ServerId);
+            IsBannedCommand.Parameters.AddWithValue("InviteCode", InviteCode);
             await using var reader = await IsBannedCommand.ExecuteReaderAsync();
 
             if (await reader.ReadAsync())
             {
                 var banNote = reader.GetString(0);
                 return $"You are banned from this server for {banNote}.";
+            }
+
+            if (await reader.NextResultAsync())
+            {
+                if (await reader.ReadAsync())
+                {
+                    var isRevoked = reader.GetBoolean(0);
+
+                    if (isRevoked )
+                    {
+                        return "Invites are paused for this server";
+                    }
+                else
+                {
+                    return "Invite is expired or invalid.";
+                }
+                }
             }
 
             await using var joinServerCommand = new NpgsqlCommand(@"

@@ -14,6 +14,7 @@ using System.Net.Sockets;
 using StackExchange.Redis;
 using Internal.MainController;
 using Internal.Shared;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Internal.WebSocketController;
 
@@ -42,6 +43,7 @@ public class WebSocketController : ControllerBase
         Shared = shared_;
     }
 
+    [EnableRateLimiting("api")]
     [HttpGet]
     public async Task Get()
     {

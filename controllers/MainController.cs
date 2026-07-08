@@ -8,6 +8,8 @@ using StackExchange.Redis;
 using Internal.Shared;
 using System.Linq;
 using System.Collections.Concurrent;
+using Microsoft.AspNetCore.RateLimiting;
+
 
 namespace Internal.MainController;
 public class TypingRequest
@@ -31,6 +33,7 @@ public class MainController : ControllerBase
         WebSocketChannelIds = WebSocketChannelIds_;
     }
 
+    [EnableRateLimiting("api")]
     [HttpPost("/GetTypingUsers")]
     public async Task<List<string>> GetTypingUsers(TypingRequest request)
     {
@@ -38,6 +41,7 @@ public class MainController : ControllerBase
         return TypingUsers;
     }
 
+    [EnableRateLimiting("api")]
     [HttpPost("/ChannelInfo")]
     public async Task<IActionResult> ChannelInfo([FromBody] TypingRequest request)
     {
