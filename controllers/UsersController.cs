@@ -98,7 +98,7 @@ public class UsersController : ControllerBase
                     {
                         System.IO.File.Delete(StoragePath);
                     }
-                } catch (Exception error)
+                } catch 
                 {
                     return BadRequest("Error with uploading file please try again later.");
                 }
