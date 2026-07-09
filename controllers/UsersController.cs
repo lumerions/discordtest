@@ -7,10 +7,12 @@ using Microsoft.AspNetCore.RateLimiting;
 using Internal.Database;
 using Internal.Shared;
 using Microsoft.Extensions.Options;
+using System.Runtime.InteropServices;
 
 public class UploadImage
 {
     public string UploadType;
+    public int? RoleId;
 }
 
 [ApiController]
@@ -62,6 +64,43 @@ public class UsersController : ControllerBase
             var StoragePath = $"{TypeInfoValue}/{NewAvatarImageName}";
             await using var stream = new FileStream(FullPath, FileMode.CreateNew);
             await file.CopyToAsync(stream);
+            string SQL = TypeInfoValue == "RoleIcons"
+                ? $"""
+                    INSERT INTO {TypeInfoValue} (
+                        id,
+                        user_id,
+                        file_name,
+                        file_size,
+                        mime_type,
+                        storage_path
+                    )
+                    VALUES (
+                        @id,
+                        @user_id,
+                        @file_name,
+                        @file_size,
+                        @mime_type,
+                        @storage_path
+                    );
+                    """
+                : $"""
+                    INSERT INTO {TypeInfoValue} (
+                        id,
+                        user_id,
+                        file_name,
+                        file_size,
+                        mime_type,
+                        storage_path
+                    )
+                    VALUES (
+                        @id,
+                        @user_id,
+                        @file_name,
+                        @file_size,
+                        @mime_type,
+                        @storage_path
+                    );
+                    """;
 
             var Success = await DBHandler.ExecuteAsync($"""
                 INSERT INTO {TypeInfoValue} (

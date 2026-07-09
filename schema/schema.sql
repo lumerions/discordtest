@@ -4,7 +4,6 @@ CREATE TABLE IF NOT EXISTS users (
     display_name VARCHAR(64) NOT NULL,
     email VARCHAR(256) NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    avatar_url TEXT,
     about_me VARCHAR(250),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     last_online TIMESTAMP,
@@ -24,6 +23,7 @@ CREATE TABLE IF NOT EXISTS avatar_uploads (
 
 CREATE TABLE IF NOT EXISTS role_icon_uploads (
     id UUID PRIMARY KEY NOT NULL,
+    role_id INT NOT NULL REFERENCES server_roles(id) ON DELETE CASCADE,
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     file_name VARCHAR(255) NOT NULL,
     file_size BIGINT NOT NULL,
@@ -138,7 +138,8 @@ CREATE TABLE IF NOT EXISTS server_messages (
     message_content TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     edited BOOLEAN DEFAULT FALSE,
-    private_message BOOLEAN DEFAULT FALSE
+    private_message BOOLEAN DEFAULT FALSE,
+    picture_path TEXT
 );
 
 CREATE TABLE IF NOT EXISTS server_message_mentions (

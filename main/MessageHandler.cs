@@ -21,6 +21,8 @@ public class MessagePayload
     public Guid MessageId {get; set;}
     public int UserId {get; set;}
     public string Message {get; set;}
+    public string Picture {get; set;} = "";
+
 }
 
 public class NewMessageHerePayload
@@ -29,13 +31,13 @@ public class NewMessageHerePayload
     public Guid ChannelId {get; set;}
 }
 
-
 public class NewMessagePayload
 {
     public Guid MessageId {get; set;}
     public Guid ChannelId {get; set;}
 
-    public string Message {get; set;}
+    public string Message {get; set;} = "";
+    public string Picture {get; set;} = "";
 }
 class MessageHandler
 {
@@ -51,16 +53,17 @@ class MessageHandler
     }
 
 
-    public async Task<bool> PrivateMessageUser(int MessagerUserId, int RecieverUserId, string Message, int ChannelId)
+    public async Task<bool> PrivateMessageUser(int MessagerUserId, int RecieverUserId, string Message, int ChannelId, string PicturePath = "")
     { 
         try
         {
             await using var conn = await DBHandler.GetConnection();
-            await using var cmd = new NpgsqlCommand("INSERT INTO server_messages (sender_id, message_content, private_message, channel_id) VALUES (@sender_id, @message_content, @private_message, @channel_id) RETURNING id;",conn);
+            await using var cmd = new NpgsqlCommand("INSERT INTO server_messages (sender_id, message_content, private_message, channel_id, picture_path) VALUES (@sender_id, @message_content, @private_message, @channel_id, @picture_path) RETURNING id;",conn);
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
             cmd.Parameters.AddWithValue("message_content", Message);
             cmd.Parameters.AddWithValue("private_message", true);
             cmd.Parameters.AddWithValue("channel_id", ChannelId);
+            cmd.Parameters.AddWithValue("picture_path", PicturePath);
 
             var result = await cmd.ExecuteScalarAsync();
 
@@ -79,7 +82,8 @@ class MessageHandler
                     {
                         MessageId = MessageId,
                         UserId = MessagerUserId,
-                        Message = Message
+                        Message = Message,
+                        Picture = PicturePath
                     });
                     var ResponseBytes = Encoding.UTF8.GetBytes(ResponseJSON);
                     await UserSocket.SendAsync(new ArraySegment<byte> (ResponseBytes), WebSocketMessageType.Text, true, CancellationToken.None);
@@ -113,7 +117,7 @@ class MessageHandler
         }
     }
 
-    public async Task<bool> SendMessageInServer(string NewMessage, int MessagerUserId, Guid ChannelId)
+    public async Task<bool> SendMessageInServer(string NewMessage, int MessagerUserId, Guid ChannelId, string PicturePath = "")
     {
         try
         {
@@ -124,13 +128,15 @@ class MessageHandler
                         sender_id,
                         message_content,
                         private_message,
-                        channel_id
+                        channel_id,
+                        picture_path
                     )
                     VALUES (
                         @sender_id,
                         @message_content,
                         @private_message,
-                        @channel_id
+                        @channel_id,
+                        @picture_path
                     )
                     RETURNING id, channel_id, sender_id
                 )
@@ -153,6 +159,7 @@ class MessageHandler
             cmd.Parameters.AddWithValue("message_content", NewMessage);
             cmd.Parameters.AddWithValue("private_message", false);
             cmd.Parameters.AddWithValue("channel_id", ChannelId);
+            cmd.Parameters.AddWithValue("picture_path", PicturePath);
             await using var reader = await cmd.ExecuteReaderAsync();
 
             if (!await reader.ReadAsync())
