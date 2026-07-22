@@ -14,7 +14,7 @@ using Microsoft.AspNetCore.Authorization;
 using System.Collections.Concurrent;
 using System.Data.SqlTypes;
 
-namespace Internal.MessageHandler;
+namespace Internal.Messages;
 
 public class MessagePayload
 {
@@ -39,7 +39,7 @@ public class NewMessagePayload
     public string Message {get; set;} = "";
     public string Picture {get; set;} = "";
 }
-class MessageHandler
+public class MessageHandler
 {
     private readonly SharedMethods.WebSocketSessionManager Manager;
     private readonly DatabaseHandler DBHandler;
@@ -51,7 +51,6 @@ class MessageHandler
         DBHandler = databasehandler;
         Shared = shared_;
     }
-
 
     public async Task<bool> PrivateMessageUser(int MessagerUserId, int RecieverUserId, string Message, int ChannelId, string PicturePath = "")
     { 
@@ -117,10 +116,13 @@ class MessageHandler
         }
     }
 
-    public async Task<bool> SendMessageInServer(string NewMessage, int MessagerUserId, Guid ChannelId, string PicturePath = "")
+    public async Task<bool> SendMessageInServer(string NewMessage, int MessagerUserId, Guid ChannelId, string PicturePath, bool? isSystem, NpgsqlTransaction? transaction)
     {
         try
         {
+            if (string.IsNullOrEmpty(PicturePath)) PicturePath = "";
+            if (isSystem == true) MessagerUserId = -500;
+
             await using var conn = await DBHandler.GetConnection();
             await using var cmd = new NpgsqlCommand(@"
                 WITH inserted AS (
@@ -154,7 +156,7 @@ class MessageHandler
                 JOIN server_channels sc2
                     ON sc2.server_id = sc.server_id
                 GROUP BY inserted.id, sc.server_id;
-            ", conn);
+            ", conn, transaction);
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
             cmd.Parameters.AddWithValue("message_content", NewMessage);
             cmd.Parameters.AddWithValue("private_message", false);
@@ -210,7 +212,6 @@ class MessageHandler
                 }
 
                 await InsertNewNotificationsCmd.ExecuteNonQueryAsync();     
-
 
                 var MessageHereJson = JsonSerializer.Serialize(new NewMessageHerePayload
                 {

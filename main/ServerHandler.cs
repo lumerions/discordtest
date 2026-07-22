@@ -1,9 +1,13 @@
 using System;
+using Internal.Messages;
 using Internal.Roles;
+using Internal.Shared;
 using Internal.Database;
 using Npgsql;
 
-public record Role(
+namespace Internal.Servers;
+
+public record Role (
     int RoleId,
     string RoleName,
     int Color,
@@ -11,7 +15,7 @@ public record Role(
     bool Separated
 );
 
-public record Message(
+public record Message (
     Guid id,
     int sender_id,
     string? message_content,
@@ -20,13 +24,17 @@ public record Message(
     bool private_message
 );
 
-
-class Server
+public class Server
 {
+    private readonly SharedMethods.WebSocketSessionManager Manager;
+
     private readonly DatabaseHandler DBHandler;
-    public Server(DatabaseHandler handler_)
+    private readonly MessageHandler MsgHandler;
+    public Server(DatabaseHandler handler_, MessageHandler MsgHandler_, SharedMethods.WebSocketSessionManager manager)
     {
         DBHandler = handler_;
+        MsgHandler = MsgHandler_;
+        Manager = manager;
     }
 
     public async Task<bool> DeleteServer(Guid ServerId)
@@ -121,7 +129,7 @@ class Server
         }
     }
 
-    public async Task<string> JoinServer(int ServerId, int JoinerId, string JoinerUsername, Guid InviteCode)
+    public async Task<string> JoinServer(Guid ServerId, int JoinerId, string JoinerUsername, Guid InviteCode)
     {
         try
         {
@@ -137,6 +145,11 @@ class Server
                 WHERE id = @InviteCode
                 AND expires_at > NOW()
                 AND (max_uses = 32000 OR uses < max_uses);
+
+
+                SELECT systems_channel
+                FROM server_settings
+                WHERE server_id = @server_id;
             ", conn);
 
             IsBannedCommand.Parameters.AddWithValue("user_id", JoinerId);
@@ -152,51 +165,74 @@ class Server
 
             if (await reader.NextResultAsync())
             {
-                if (await reader.ReadAsync())
-                {
-                    var isRevoked = reader.GetBoolean(0);
-
-                    if (isRevoked )
-                    {
-                        return "Invites are paused for this server";
-                    }
-                else
+                if (!await reader.ReadAsync())
                 {
                     return "Invite is expired or invalid.";
                 }
+
+                var isRevoked = reader.GetBoolean(0);
+
+                if (isRevoked )
+                {
+                    return "Invites are paused for this server";
                 }
             }
 
-            await using var joinServerCommand = new NpgsqlCommand(@"
-                INSERT INTO server_members (
-                    server_id,
-                    user_id,
-                    nickname
-                )
-                VALUES (
-                    @server_id,
-                    @user_id,
-                    @nickname
-                )
-                RETURNING joined_at;
-            ", conn);
-            // TODO 
-            // send a message in the server somewhere alerting other users
-            // that this particular user joined in the first place
-            joinServerCommand.Parameters.AddWithValue("user_id", JoinerId);
-            joinServerCommand.Parameters.AddWithValue("server_id", ServerId);
-            joinServerCommand.Parameters.AddWithValue("nickname", JoinerUsername);
-            var result = await joinServerCommand.ExecuteScalarAsync();
-            var success = result != null && result != DBNull.Value;
-            var returnMessage = success ? "Joined Server Successfully." : "Could not join server please try again later.";
-            return returnMessage;
+            await using var transaction = await conn.BeginTransactionAsync();
+
+            try {
+                if (await reader.NextResultAsync())
+                {
+                    if (await reader.ReadAsync())
+                    {
+                        await using var joinServerCommand = new NpgsqlCommand(@"
+                            INSERT INTO server_members (
+                                server_id,
+                                user_id,
+                                nickname
+                            )
+                            VALUES (
+                                @server_id,
+                                @user_id,
+                                @nickname
+                            )
+                            RETURNING joined_at;
+                        ", conn, transaction);
+
+                        Func<string, string> WelcomeUser = userName => $"Welcome {userName}";
+                        var SystemChannelId = reader.GetGuid(0);
+
+                        joinServerCommand.Parameters.AddWithValue("user_id", JoinerId);
+                        joinServerCommand.Parameters.AddWithValue("server_id", ServerId);
+                        joinServerCommand.Parameters.AddWithValue("nickname", JoinerUsername);
+                        var result = await joinServerCommand.ExecuteScalarAsync();
+                        var success = result != null && result != DBNull.Value;
+                        var returnMessage = success ? "Joined Server Successfully." : "Could not join server please try again later.";
+
+                        if (success)
+                        {
+                            await MsgHandler.SendMessageInServer(WelcomeUser(JoinerUsername), JoinerId, SystemChannelId, "", true, transaction);
+                        }
+                        
+                        return returnMessage;
+                    }
+                }
+
+                await transaction.CommitAsync();
+            } catch
+            {
+                await transaction.RollbackAsync();
+            }
+
+            return "Could not join server please try again later.";
+
         } catch(Exception err) {
             Console.WriteLine(err);
             return "Internal Server Error.";
         }
     }
 
-    public async Task<bool> BanOrMuteUser(int ServerId, int BanId, int ModeratorId, string BanReason, DateTime? ExpiresAt, string TableName)
+    public async Task<bool> BanOrMuteUser(Guid ServerId, int BanId, int ModeratorId, string BanReason, DateTime? ExpiresAt, string TableName)
     {
         if (TableName != "server_mutes" && TableName != "server_bans")
         {
@@ -234,7 +270,7 @@ class Server
         }
     }
 
-    public async Task<bool> KickUser(int ServerId, int UserId)
+    public async Task<bool> KickUser(Guid ServerId, int UserId)
     {
         try
         {
@@ -253,7 +289,7 @@ class Server
         }
     }
 
-    public async Task<bool> ChangeServerNickname(int ServerId, int UserId, string Nickname)
+    public async Task<bool> ChangeServerNickname(Guid ServerId, int UserId, string Nickname)
     {
         try
         {
@@ -273,7 +309,7 @@ class Server
         }
     }
 
-    public async Task<bool> CreateServerChannel(int ServerId, string ChannelType, int Position)
+    public async Task<bool> CreateServerChannel(Guid ServerId, string ChannelType, int Position)
     {
         try
         {
@@ -300,7 +336,7 @@ class Server
         }
     }
 
-    public async Task<List<Role>> ViewRoles(int ServerId)
+    public async Task<List<Role>> ViewRoles(Guid ServerId)
     {
         try
         {
@@ -334,10 +370,12 @@ class Server
     }
 
 
-    public async Task<List<Message>> SearchMessagesByWord(int ServerId, string? Search, Guid ChannelId, DateTime? cursorCreatedAt, Guid? cursorId)
+    public async Task<List<Message>> SearchMessagesByWord(string? Search, Guid ChannelId, DateTime? cursorCreatedAt, Guid? cursorId)
     {
         try
         {
+            if (Search == null) Search = "";
+
             string SQL = cursorCreatedAt is null && cursorId is null
                 ? @"SELECT id, sender_id, message_content, created_at, edited, private_message
                     FROM server_messages
@@ -391,5 +429,10 @@ class Server
             Console.WriteLine(error);
             return new List<Message>();
         }
+    }
+
+    public int GetOnlineCountByServerId ()
+    {
+        return Manager.Users.Count;
     }
 }

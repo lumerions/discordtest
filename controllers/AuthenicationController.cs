@@ -32,7 +32,7 @@ public class AuthenicationController : ControllerBase
     public string SetJWTValue(IConfiguration configuration, long UserId, string Email, string Username)
     {
         var JWTKey = configuration["Main:JWTKEY"];
-        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JWTKey));
+        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JWTKey!));
         var securityCreds = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
         var claims = new[]
         {

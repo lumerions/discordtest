@@ -109,6 +109,12 @@ CREATE TABLE IF NOT EXISTS server_channels (
     rules_channel BOOLEAN NOT NULL DEFAULT FALSE
 );
 
+CREATE TABLE IF NOT EXISTS server_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    systems_channel UUID REFERENCES server_channels(id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS server_bans (
     id BIGSERIAL PRIMARY KEY,
     server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
@@ -134,7 +140,7 @@ CREATE TABLE IF NOT EXISTS server_mutes (
 CREATE TABLE IF NOT EXISTS server_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     channel_id NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
-    sender_id INTEGER NOT NULL,
+    sender_id INTEGER NOT NULL, -- -500 is for System Messages
     message_content TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     edited BOOLEAN DEFAULT FALSE,

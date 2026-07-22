@@ -18,7 +18,7 @@ public class TypingRequest
 }
 
 [ApiController]
-[Route("/api")]
+[Route("/api/")]
 public class MainController : ControllerBase
 {
     private readonly RedisHandler Redis;
@@ -34,15 +34,15 @@ public class MainController : ControllerBase
     }
 
     [EnableRateLimiting("api")]
-    [HttpPost("/GetTypingUsers")]
-    public async Task<List<string>> GetTypingUsers(TypingRequest request)
+    [HttpPost("GetTypingUsers")]
+    public async Task<List<string>> GetTypingUsers([FromBody] TypingRequest request)
     {
         var TypingUsers = (await RedisDatabase.SetMembersAsync($"channel:{request.DiscordChannelId}")).Take(5).Select(x => (string) x).ToList();
         return TypingUsers;
     }
 
     [EnableRateLimiting("api")]
-    [HttpPost("/ChannelInfo")]
+    [HttpPost("ChannelInfo")]
     public async Task<IActionResult> ChannelInfo([FromBody] TypingRequest request)
     {
         var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
