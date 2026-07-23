@@ -232,6 +232,61 @@ public class Server
         }
     }
 
+    public async Task<Dictionary<string, string>> GetChannelIdsByServerId(Guid ServerId, int? UserId, bool? PermissionsCheck)
+    {
+        try
+        {
+            await using var conn = await DBHandler.GetConnection();
+            string SQL = PermissionsCheck == false || PermissionsCheck == null
+                ? @"
+                    SELECT id
+                    FROM server_channels
+                    WHERE server_id = @server_id;
+                "
+                : @"
+                    SELECT bit_or(permissions) AS effective_permissions
+                    FROM server_roles
+                    WHERE user_id = @user_id
+                    AND server_id = @server_id;
+
+                    SELECT id
+                    FROM server_channels
+                    WHERE server_id = @server_id;
+                ";
+            await using var getChannelIds = new NpgsqlCommand(SQL, conn);
+
+            if (PermissionsCheck == true)
+            {
+                getChannelIds.Parameters.AddWithValue("user_id", UserId!);
+            }
+
+            getChannelIds.Parameters.AddWithValue("server_id", ServerId);
+            await using var reader = await getChannelIds.ExecuteReaderAsync();
+            var Data = new Dictionary<string, string>();
+
+            if (PermissionsCheck == true)
+            {
+                if (await reader.ReadAsync())
+                {
+                    var PermissionsNumber = reader.GetInt64(0);
+                    Data.TryAdd("Permissions", PermissionsNumber.ToString());
+                }
+            }
+
+            while (await reader.ReadAsync())
+            {
+                var DiscordChannelId = reader.GetGuid(0);
+                var RedisKey = $"channels:{DiscordChannelId.ToString()}";
+                Data.TryAdd(RedisKey, "");
+            }
+
+            return Data;
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return new Dictionary<string, string>();
+        }
+    }
+
     public async Task<bool> BanOrMuteUser(Guid ServerId, int BanId, int ModeratorId, string BanReason, DateTime? ExpiresAt, string TableName)
     {
         if (TableName != "server_mutes" && TableName != "server_bans")

@@ -53,6 +53,13 @@ public class SharedMethods
         {
             if (Manager.Users.TryGetValue(ChannelUserId, out var UserSocket)) {
                 try {
+                    if (UserSocket.State != WebSocketState.Open)
+                    {
+                        UserSocket.Dispose();
+                        Manager.Users.TryRemove(ChannelUserId, out _);
+                        return;
+                    }
+
                     await UserSocket.SendAsync(SocketTypeBuffer, WebSocketMessageType.Text, true, CancellationToken.None);
                 } catch
                 {

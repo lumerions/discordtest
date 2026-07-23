@@ -46,16 +46,3 @@ public enum Permissions : long
 
     Administrator        = 1L << 30
 }
-
-public class Roles
-{
-    static void Main(string[] args)
-    {
-        //long PermissionValue = 3;
-
-        //Permissions perm = (Permissions) PermissionValue;
-        
-       // var canViewChannelAndAddReactions = (perm & Permissions.ViewChannel) != 0 && (perm & Permissions.SendMessages) != 0;
-        //Console.WriteLine(canViewChannelAndAddReactions);
-    }
-}
