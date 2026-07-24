@@ -30,6 +30,8 @@ builder.Services
         };
 });
 
+builder.Services.AddAuthorization();
+
 builder.Services.AddRateLimiter(options =>
 {
     options.AddFixedWindowLimiter("api", limiterOptions =>
@@ -47,7 +49,6 @@ builder.Services.AddSingleton<DatabaseHandler>();
 builder.Services.AddSingleton<SharedMethods.WebSocketSessionManager>();
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
-builder.Services.AddAuthentication();
 
 var app = builder.Build();
 
@@ -56,9 +57,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseWebSockets();
 app.MapControllers();
-app.UseHttpsRedirection();
 app.Run();

@@ -8,6 +8,7 @@ using StackExchange.Redis;
 using Internal.Shared;
 using System.Linq;
 using System.Collections.Concurrent;
+using Internal.Main;
 using Microsoft.AspNetCore.RateLimiting;
 
 
@@ -54,6 +55,7 @@ public class MainController : ControllerBase
 
         Users.TryAdd(UserId.ToString(), 0);
         
+
         // TODO
         return Ok(new
         {

@@ -3,6 +3,8 @@ using System.Threading.Tasks;
 using Internal.Database;
 using Npgsql;
 
+namespace Internal.Main;
+
 public class RoleItem
 {
     public string RoleName {get; set;} = "";

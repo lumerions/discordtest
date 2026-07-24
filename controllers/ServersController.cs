@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebSockets;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Internal.Servers;
 using System.ComponentModel.DataAnnotations;
@@ -12,6 +13,14 @@ using System.Net.WebSockets;
 using System.Linq;
 using StackExchange.Redis;
 using System.Collections.Concurrent;
+
+public record CreateServerDto (
+    [Required] string ServerName
+);
+
+public record DeleteServerDto (
+    [Required] Guid ServerId
+);
 
 public record JoinServerDto (
     [Required] Guid ServerId,
@@ -110,6 +119,7 @@ public class ServersController : ControllerBase
         await RedisDatabase.StringSetAsync(RedisBulkOps);
     }
 
+    [Authorize]
     [EnableRateLimiting("api")]
     [HttpPost("joinServer")]
     public async Task<IActionResult> UserJoin ([FromBody] JoinServerDto request)
@@ -143,6 +153,7 @@ public class ServersController : ControllerBase
         return BadRequest("Could not join server please try again later.");
     }
 
+    [Authorize]
     [EnableRateLimiting("api")]
     [HttpPost("moderation-action")]
     public async Task<IActionResult> ModerationAction ([FromBody] BanOrMuteDto request)
@@ -206,6 +217,43 @@ public class ServersController : ControllerBase
             });
         }
 
+        return BadRequest("Error getting userid.");
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("delete-server")]
+    public async Task<IActionResult> DeleteServer ([FromBody] DeleteServerDto request)
+    {
+        var ServerId = request.ServerId;
+        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
+
+        if (int.TryParse(UserId, out var IdValue))
+        {
+            await ServerHandler.DeleteGuild(ServerId, IdValue);
+        }
+        
+        return BadRequest("Error getting userid.");
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("create-server")]
+    public async Task<IActionResult> CreateServer ([FromBody] CreateServerDto request)
+    {
+        var ServerName = request.ServerName;
+        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
+        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
+
+        if (int.TryParse(UserId, out var IdValue))
+        {
+            await ServerHandler.CreateNewServer(ServerName, IdValue, UserName);
+        }
+        
         return BadRequest("Error getting userid.");
     }
 }

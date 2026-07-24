@@ -1,6 +1,6 @@
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebSockets;
+using Microsoft.AspNetCore.Authorization;
 using System.Net.WebSockets;
 using System.Text;
 using System.Security.Claims;
@@ -43,6 +43,7 @@ public class WebSocketController : ControllerBase
         Shared = shared_;
     }
 
+    [Authorize]
     [EnableRateLimiting("api")]
     [HttpGet]
     public async Task Get()

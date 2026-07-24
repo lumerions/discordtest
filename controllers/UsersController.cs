@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Threading;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Authorization;
 using Internal.Database;
 using Internal.Shared;
 using Microsoft.Extensions.Options;
@@ -26,6 +27,7 @@ public class UsersController : ControllerBase
         DBHandler = DBHandler_;
     }
 
+    [Authorize]
     [EnableRateLimiting("api")]
     [HttpPost]
     public async Task<IActionResult> UploadAvatarImage([FromBody] UploadImage request, IFormFile file)

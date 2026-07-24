@@ -37,15 +37,16 @@ public class Server
         Manager = manager;
     }
 
-    public async Task<bool> DeleteServer(Guid ServerId)
+    public async Task<bool> DeleteGuild(Guid ServerId, int ServerOwnerId)
     {
         try
         {
             return await DBHandler.ExecuteAsync($"""
-                DELETE FROM servers WHERE id = @id
+                DELETE FROM servers WHERE id = @id AND server_owner_id = @server_owner_id;
             """, cmd =>
             {
                 cmd.Parameters.AddWithValue("id", ServerId);
+                cmd.Parameters.AddWithValue("server_owner_id", ServerOwnerId);
             }).ContinueWith(r => r.Result > 0);
         } catch(Exception err) {
             Console.WriteLine(err);
@@ -79,24 +80,30 @@ public class Server
                     FROM new_server
                 ),
                 new_channels AS (
-                    INSERT INTO server_channels (server_id, name, type, position, rules_channel)
-                    SELECT
-                        id,
-                        'general',
-                        'text',
-                        0,
-                        FALSE
+                    INSERT INTO server_channels (
+                        server_id,
+                        name,
+                        type,
+                        position,
+                        rules_channel
+                    )
+                    SELECT id, 'general', 'text', 0, FALSE
                     FROM new_server
 
                     UNION ALL
 
-                    SELECT
-                        id,
-                        'rules',
-                        'text',
-                        1,
-                        TRUE
+                    SELECT id, 'rules', 'text', 1, TRUE
                     FROM new_server
+
+                    RETURNING id, server_id, name
+                ),
+                new_server_setting AS (
+                    INSERT INTO server_settings (server_id, systems_channel)
+                    SELECT
+                        server_id,
+                        id
+                    FROM new_channels
+                    WHERE name = 'general'
                 )
                 SELECT id FROM new_server;
             """, cmd =>
@@ -199,7 +206,7 @@ public class Server
                             RETURNING joined_at;
                         ", conn, transaction);
 
-                        Func<string, string> WelcomeUser = userName => $"Welcome {userName}";
+                        Func<string, string> WelcomeUser = userName => $"Welcome {userName} to the server!";
                         var SystemChannelId = reader.GetGuid(0);
 
                         joinServerCommand.Parameters.AddWithValue("user_id", JoinerId);
