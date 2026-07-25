@@ -20,8 +20,7 @@ public record Message (
     int sender_id,
     string? message_content,
     DateTime created_at,
-    bool edited,
-    bool private_message
+    bool edited
 );
 
 public class Server
@@ -371,18 +370,20 @@ public class Server
         }
     }
 
-    public async Task<bool> CreateServerChannel(Guid ServerId, string ChannelType, int Position)
+    public async Task<bool> CreateServerChannel(Guid ServerId, string ChannelType, int Position, string ChannelName)
     {
         try
         {
             return await DBHandler.ExecuteAsync(@"
                 INSERT INTO server_channels (
                     server_id,
+                    name,
                     type,
                     position
                 )
                 VALUES (
                     @server_id,
+                    @name,
                     @type,
                     @position
                 );
@@ -391,6 +392,7 @@ public class Server
                 cmd.Parameters.AddWithValue("server_id", ServerId);
                 cmd.Parameters.AddWithValue("type", ChannelType);
                 cmd.Parameters.AddWithValue("position", Position);
+                cmd.Parameters.AddWithValue("name", ChannelName);
             }).ContinueWith(t => t.Result > 0);
         } catch (Exception error) {
             Console.WriteLine(error);
@@ -439,13 +441,13 @@ public class Server
             if (Search == null) Search = "";
 
             string SQL = cursorCreatedAt is null && cursorId is null
-                ? @"SELECT id, sender_id, message_content, created_at, edited, private_message
+                ? @"SELECT id, sender_id, message_content, created_at, edited
                     FROM server_messages
                     WHERE channel_id = @channel_id
                     AND message_content LIKE CONCAT('%', @search, '%')
                     ORDER BY created_at DESC, id DESC
                     LIMIT 50;"
-                : @"SELECT id, sender_id, message_content, created_at, edited, private_message
+                : @"SELECT id, sender_id, message_content, created_at, edited
                     FROM server_messages
                     WHERE channel_id = @channel_id
                     AND message_content LIKE CONCAT('%', @search, '%')
@@ -473,7 +475,6 @@ public class Server
                 var message_content = reader.GetString(2);
                 var created_at = reader.GetDateTime(3);
                 var edited = reader.GetBoolean(4);
-                var private_message = reader.GetBoolean(5);
 
                 Messages.Add(new Message
                 (
@@ -481,8 +482,7 @@ public class Server
                     sender_id,
                     message_content,
                     created_at,
-                    edited,
-                    private_message
+                    edited
                 ));
             }
 

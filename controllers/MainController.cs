@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using System.Security.Claims;
 using Internal.Redis;
@@ -24,16 +25,19 @@ public class MainController : ControllerBase
 {
     private readonly RedisHandler Redis;
     private readonly IDatabase RedisDatabase;
+    private readonly SharedMethods.ServerIdUserIdConnections ServerIdIds;
 
     private readonly SharedMethods.WebSocketChannelIdConnections WebSocketChannelIds;
 
-    public MainController(RedisHandler redis_, SharedMethods.WebSocketChannelIdConnections WebSocketChannelIds_)
+    public MainController(RedisHandler redis_, SharedMethods.WebSocketChannelIdConnections WebSocketChannelIds_, SharedMethods.ServerIdUserIdConnections ServerIdIds_)
     {
         Redis = redis_;
         RedisDatabase = redis_.GetRedisDatabase();
         WebSocketChannelIds = WebSocketChannelIds_;
+        ServerIdIds = ServerIdIds_;
     }
 
+    [Authorize]
     [EnableRateLimiting("api")]
     [HttpPost("GetTypingUsers")]
     public async Task<List<string>> GetTypingUsers([FromBody] TypingRequest request)
@@ -42,6 +46,7 @@ public class MainController : ControllerBase
         return TypingUsers;
     }
 
+    [Authorize]
     [EnableRateLimiting("api")]
     [HttpPost("ChannelInfo")]
     public async Task<IActionResult> ChannelInfo([FromBody] TypingRequest request)
@@ -54,7 +59,10 @@ public class MainController : ControllerBase
         var Users = WebSocketChannelIds.ChannelUsers.GetOrAdd(channelId, _ => new ConcurrentDictionary<string,byte>());
 
         Users.TryAdd(UserId.ToString(), 0);
-        
+
+        var ServerIdUsers = ServerIdIds.ServerIdUsers.GetOrAdd(channelId, _ => new ConcurrentDictionary<string,byte>());
+
+        ServerIdUsers.TryAdd(UserId.ToString(), 0);
 
         // TODO
         return Ok(new

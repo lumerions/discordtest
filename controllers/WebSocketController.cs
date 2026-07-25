@@ -33,14 +33,17 @@ public class WebSocketController : ControllerBase
     private readonly SharedMethods.WebSocketSessionManager Manager;
     private readonly IDatabase RedisDatabase;
     private readonly SharedMethods.WebSocketChannelIdConnections websocketconns_;
+    private readonly SharedMethods.ServerIdUserIdConnections ServerIdIds;
+
     private readonly SharedMethods Shared;
 
-    public WebSocketController(SharedMethods.WebSocketSessionManager manager, RedisHandler redis_, SharedMethods.WebSocketChannelIdConnections  websocketconns, SharedMethods shared_)
+    public WebSocketController(SharedMethods.ServerIdUserIdConnections ServerIdIds_, SharedMethods.WebSocketSessionManager manager, RedisHandler redis_, SharedMethods.WebSocketChannelIdConnections  websocketconns, SharedMethods shared_)
     {
         Manager = manager;
         RedisDatabase = redis_.GetRedisDatabase();
         websocketconns_ = websocketconns;
         Shared = shared_;
+        ServerIdIds = ServerIdIds_;
     }
 
     [Authorize]
@@ -102,6 +105,11 @@ public class WebSocketController : ControllerBase
                     break;
                 case WebSocketMessageType.Close:
                     foreach (var k in websocketconns_.ChannelUsers)
+                    {
+                        k.Value.TryRemove(UserId.ToString(), out var _);
+                    }
+
+                    foreach (var k in ServerIdIds.ServerIdUsers)
                     {
                         k.Value.TryRemove(UserId.ToString(), out var _);
                     }

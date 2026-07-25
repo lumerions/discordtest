@@ -14,6 +14,26 @@ using System.Linq;
 using StackExchange.Redis;
 using System.Collections.Concurrent;
 
+namespace Internal.ServerCont;
+
+public record NewChannel (
+    [Required] Guid ServerId,
+    [Required] string ChannelName,
+    [Required] string ChannelType,
+    [Required] int Position // frontend can determine this
+);
+
+public record ChangeNickname (
+    [Required] Guid ServerId,
+    [Required] string NewNickname,
+    [Required] int UserId
+);
+
+public record KickMemb (
+    [Required] Guid ServerId,
+    [Required] int UserId
+);
+
 public record CreateServerDto (
     [Required] string ServerName
 );
@@ -46,6 +66,23 @@ public class ServersController : ControllerBase
 
     private readonly SharedMethods.WebSocketChannelIdConnections websocketconns_;
 
+    public async Task<(Permissions? Perm, bool Successful, Dictionary<string, string> ChannelIds)> GetPerm (Guid ServerId, int IdValue, bool PermissionCheck)
+    {
+        if (!PermissionCheck) return (null, false, new Dictionary<string, string>());
+
+        var PermissionInfo = await ServerHandler.GetChannelIdsByServerId(ServerId, IdValue, PermissionCheck);
+
+        if (!PermissionInfo.ContainsKey("Permissions")) {
+            return (null, false, PermissionInfo);
+        }
+        
+        string PermissionString = PermissionInfo.GetValueOrDefault("Permissions");
+        long PermissionNumber = long.Parse(PermissionString);
+        var Perm = (Permissions) PermissionNumber;
+
+        return (Perm, true, PermissionInfo);
+    }
+
     public ServersController (SharedMethods.WebSocketSessionManager manager, RedisHandler redis_, Server ServerHandler_, SharedMethods.WebSocketChannelIdConnections  websocketconns)
     {
         ServerHandler = ServerHandler_;
@@ -54,9 +91,17 @@ public class ServersController : ControllerBase
         Manager = manager;
     }
 
-    public async Task SendUpdate (WebSocket socket, string UserIdToRemove)
-    {
-        var MessageUpdateType = $"remove_user:{UserIdToRemove}";
+    public async Task SendUpdate (WebSocket socket, string UserIdToRemove, string? JsonContent)
+    {   
+        string MessageUpdateType = "";
+        if (JsonContent == null)
+        {
+            MessageUpdateType = $"remove_user:{UserIdToRemove}";
+        } else
+        {
+            MessageUpdateType = JsonContent;
+        }
+
         var MessageUpdateTypeBytes = Encoding.UTF8.GetBytes(MessageUpdateType);
         var MessageUpdateTypeBuffer = new ArraySegment<byte> (MessageUpdateTypeBytes);
 
@@ -64,8 +109,8 @@ public class ServersController : ControllerBase
 
             if (socket.State != WebSocketState.Open)
             {
-                socket.Dispose();
                 Manager.Users.TryRemove(UserIdToRemove, out _);
+                socket.Dispose();
                 return;
             }
 
@@ -80,8 +125,8 @@ public class ServersController : ControllerBase
                 }
             } finally
             {
-                socket.Dispose();
                 Manager.Users.TryRemove(UserIdToRemove, out _);
+                socket.Dispose();
             }
         }
     }
@@ -104,7 +149,7 @@ public class ServersController : ControllerBase
                     {
                         if (Manager.Users.TryGetValue(UserId.ToString(), out var UserSocket))
                         {
-                            Tasks.Add(SendUpdate(UserSocket, UserId.ToString()));
+                            Tasks.Add(SendUpdate(UserSocket, UserId.ToString(), null));
                         }
                     }
                 }
@@ -174,16 +219,17 @@ public class ServersController : ControllerBase
         }
 
         if (int.TryParse(UserId, out var UserIdInt)) {
+            if (BanReason == null) BanReason = "";
 
-            var ChannelIds = await ServerHandler.GetChannelIdsByServerId(ServerId, UserIdInt, ModerationAction == "server_bans");
-
-            if (ChannelIds.ContainsKey("Permissions")) {
+            var PermissionResult = await GetPerm(ServerId, UserIdInt, true);
+            var Perm = PermissionResult.Perm;
+          
+            if (Perm == null) 
+            { 
                 return BadRequest();
             }
-            
-            string PermissionString = ChannelIds.GetValueOrDefault("Permissions");
-            long PermissionNumber = long.Parse(PermissionString);
-            var Perm = (Permissions) PermissionNumber;
+
+            var ChannelIds = PermissionResult.ChannelIds;
 
             if (ModerationAction == "server_mutes")
             {
@@ -253,6 +299,120 @@ public class ServersController : ControllerBase
         {
             await ServerHandler.CreateNewServer(ServerName, IdValue, UserName);
         }
+        
+        return BadRequest("Error getting userid.");
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("kick-user")]
+    public async Task<IActionResult> KickMember ([FromBody] KickMemb request)
+    {
+        var KickUserId = request.UserId;
+        var ServerId = request.ServerId;
+        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
+        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
+
+        if (int.TryParse(UserId, out var IdValue))
+        {
+            var PermissionInfo = await ServerHandler.GetChannelIdsByServerId(ServerId, IdValue, true);
+
+            if (PermissionInfo.ContainsKey("Permissions")) {
+                return BadRequest();
+            }
+            
+            string PermissionString = PermissionInfo.GetValueOrDefault("Permissions");
+            long PermissionNumber = long.Parse(PermissionString);
+            var Perm = (Permissions) PermissionNumber;
+            var canKick = (Perm & Permissions.KickMembers) != 0;
+
+            if (!canKick)
+            {
+                return Unauthorized();
+            }
+
+            await ServerHandler.KickUser(ServerId, KickUserId);
+        }
+        
+        return BadRequest("Error getting userid.");
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("change-nickname")]
+    public async Task<IActionResult> ChangeNickname ([FromBody] ChangeNickname request)
+    {
+        var NewNickname = request.NewNickname;
+        var NewNicknameId = request.UserId;
+        var ServerId = request.ServerId;
+        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
+        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
+
+        if (int.TryParse(UserId, out var IdValue))
+        {
+            var PermissionResult = await GetPerm(ServerId, IdValue, true);
+            var Perm = PermissionResult.Perm;
+          
+            if (Perm == null) 
+            { 
+                return BadRequest();
+            }
+
+            var CanChangeNickname = (Perm & Permissions.ChangeNickname) != 0;
+
+            if (!CanChangeNickname)
+            {
+                return Unauthorized();
+            }
+
+            await ServerHandler.ChangeServerNickname(ServerId, NewNicknameId, NewNickname);
+        } // websocket support needs to be added for all of this but ill do it later
+        
+        return BadRequest("Error getting userid.");
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("new-channel")]
+    public async Task<IActionResult> NewServerChannel ([FromBody] NewChannel request)
+    {
+        var ChannelType = request.ChannelType;
+        var ChannelName = request.ChannelName;
+        var ChannelPosition = request.Position;
+        var ServerId = request.ServerId;
+        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
+        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
+
+        if (ChannelType != "text" && ChannelType != "voice" && ChannelType != "category") 
+        {
+            return BadRequest("Invalid channel type.");
+        }
+
+        if (int.TryParse(UserId, out var IdValue))
+        {
+            var PermissionResult = await GetPerm(ServerId, IdValue, true);
+            var Perm = PermissionResult.Perm;
+          
+            if (Perm == null) 
+            { 
+                return BadRequest();
+            }
+
+            var CanChangeNickname = (Perm & Permissions.ManageChannels) != 0;
+
+            if (!CanChangeNickname)
+            {
+                return Unauthorized();
+            }
+
+            await ServerHandler.CreateServerChannel(ServerId, ChannelType, ChannelPosition, ChannelName);
+        } // websocket support needs to be added for all of this but ill do it later
         
         return BadRequest("Error getting userid.");
     }

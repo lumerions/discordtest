@@ -6,9 +6,9 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     about_me VARCHAR(250),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    last_online TIMESTAMP,
     is_verified BOOLEAN NOT NULL DEFAULT FALSE,
-    is_banned SMALLINT NOT NULL DEFAULT 0 -- 0 = Fine 1 = Banned 2 = Account Deleted
+    is_banned SMALLINT NOT NULL DEFAULT 0, -- 0 = Fine 1 = Banned 2 = Account Deleted
+    profile_status SMALLINT NOT NULL DEFAULT 0 -- 0 = Idle 1 = dnd 2 = invisible 3 = online
 );
 
 CREATE TABLE IF NOT EXISTS avatar_uploads (
@@ -139,12 +139,22 @@ CREATE TABLE IF NOT EXISTS server_mutes (
 
 CREATE TABLE IF NOT EXISTS server_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    channel_id NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
-    sender_id INTEGER NOT NULL, -- -500 is for System Messages
+    channel_id UUID NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
+    sender_id INTEGER NOT NULL,
     message_content TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     edited BOOLEAN DEFAULT FALSE,
-    private_message BOOLEAN DEFAULT FALSE,
+    picture_path TEXT
+);
+
+CREATE TABLE IF NOT EXISTS private_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sender_id INTEGER NOT NULL,
+    receiver_id INTEGER NOT NULL,
+    message_content TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    edited BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMP DEFAULT NULL,
     picture_path TEXT
 );
 
@@ -164,6 +174,14 @@ CREATE TABLE IF NOT EXISTS server_invites (
     uses SMALLINT NOT NULL DEFAULT 0, 
     expires_at TIMESTAMP,
     is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sender_id INTEGER NOT NULL,  -- sender id
+    request_id INTEGER NOT NULL,  -- request id
+    type BOOLEAN NOT NULL,   -- true = Friend Request false = Private Message
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 

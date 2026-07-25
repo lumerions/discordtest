@@ -5,6 +5,7 @@ using System.Text.Json;
 using Internal.WebSocketController;
 using Internal.Database;
 using Internal.Redis;
+using Internal.ServerCont;
 using Internal.Shared;
 using Npgsql;
 using System.IO.Pipelines;
@@ -44,12 +45,14 @@ public class MessageHandler
     private readonly SharedMethods.WebSocketSessionManager Manager;
     private readonly DatabaseHandler DBHandler;
     private readonly SharedMethods Shared;
+    private readonly ServersController ServerCont;
 
-    public MessageHandler(SharedMethods.WebSocketSessionManager manager, DatabaseHandler databasehandler, SharedMethods shared_)
+    public MessageHandler(ServersController ServerControll, SharedMethods.WebSocketSessionManager manager, DatabaseHandler databasehandler, SharedMethods shared_)
     {
         Manager = manager;
         DBHandler = databasehandler;
         Shared = shared_;
+        ServerCont = ServerControll;
     }
 
     public async Task<bool> PrivateMessageUser(int MessagerUserId, int RecieverUserId, string Message, int ChannelId, string PicturePath = "")
@@ -57,10 +60,10 @@ public class MessageHandler
         try
         {
             await using var conn = await DBHandler.GetConnection();
-            await using var cmd = new NpgsqlCommand("INSERT INTO server_messages (sender_id, message_content, private_message, channel_id, picture_path) VALUES (@sender_id, @message_content, @private_message, @channel_id, @picture_path) RETURNING id;",conn);
+            await using var cmd = new NpgsqlCommand("INSERT INTO private_messages (sender_id, receiver_id, message_content, private_message, channel_id, picture_path) VALUES (@sender_id, @receiver_id, @message_content, @channel_id, @picture_path) RETURNING id;",conn);
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
+            cmd.Parameters.AddWithValue("receiver_id", RecieverUserId);
             cmd.Parameters.AddWithValue("message_content", Message);
-            cmd.Parameters.AddWithValue("private_message", true);
             cmd.Parameters.AddWithValue("channel_id", ChannelId);
             cmd.Parameters.AddWithValue("picture_path", PicturePath);
 
@@ -76,7 +79,7 @@ public class MessageHandler
             async Task SendMessage(int UserId)
             {
                 if (Manager.Users.TryGetValue(UserId.ToString(), out var UserSocket))
-                { // this needs some more work but will have to do for now
+                { 
                     var ResponseJSON = JsonSerializer.Serialize(new MessagePayload
                     {
                         MessageId = MessageId,
@@ -84,8 +87,8 @@ public class MessageHandler
                         Message = Message,
                         Picture = PicturePath
                     });
-                    var ResponseBytes = Encoding.UTF8.GetBytes(ResponseJSON);
-                    await UserSocket.SendAsync(new ArraySegment<byte> (ResponseBytes), WebSocketMessageType.Text, true, CancellationToken.None);
+
+                    await ServerCont.SendUpdate(UserSocket, UserId.ToString(), ResponseJSON);
                 }
             }
 
@@ -129,14 +132,12 @@ public class MessageHandler
                     INSERT INTO server_messages (
                         sender_id,
                         message_content,
-                        private_message,
                         channel_id,
                         picture_path
                     )
                     VALUES (
                         @sender_id,
                         @message_content,
-                        @private_message,
                         @channel_id,
                         @picture_path
                     )
@@ -159,7 +160,6 @@ public class MessageHandler
             ", conn, transaction);
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
             cmd.Parameters.AddWithValue("message_content", NewMessage);
-            cmd.Parameters.AddWithValue("private_message", false);
             cmd.Parameters.AddWithValue("channel_id", ChannelId);
             cmd.Parameters.AddWithValue("picture_path", PicturePath);
             await using var reader = await cmd.ExecuteReaderAsync();

@@ -22,6 +22,10 @@ public class SharedMethods
         RedisDatabase = redis_.GetRedisDatabase();
         websocketconns_ = websocketconns;
     }
+    public class ServerIdUserIdConnections
+    {
+        public ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> ServerIdUsers = new(); 
+    }
 
     public class WebSocketChannelIdConnections
     {

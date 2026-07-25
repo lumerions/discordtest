@@ -1,7 +1,11 @@
 using System;
 using System.Threading.Tasks;
 using Internal.Database;
+using Internal.Shared;
+using Internal.ServerCont;
 using Npgsql;
+using System.Net.WebSockets;
+using System.Text.Json;
 
 namespace Internal.Main;
 
@@ -24,12 +28,36 @@ public class ProfileInfo
     public List<RoleItem> RoleData {get; set;}
 }
 
+public class Notification
+{
+    public int UserId;
+}
+
+public class FriendRequest : Notification
+{
+    public string Username;
+}
+
 public class MainHandler
 {
     private readonly DatabaseHandler DBHandler;
-    public MainHandler(DatabaseHandler databaseHandler)
+    private readonly SharedMethods.WebSocketSessionManager Manager;
+    private readonly ServersController ServerControll;
+    public MainHandler(ServersController ServerController, DatabaseHandler databaseHandler, SharedMethods.WebSocketSessionManager manager)
     {
         DBHandler = databaseHandler;
+        Manager = manager;
+        ServerControll = ServerController;
+    }
+
+    public (bool IsOnline, WebSocket UserSocket) UserOnline (int UserId)
+    {
+        if (Manager.Users.TryGetValue(UserId.ToString(), out var Socket))
+        {
+           return (true, Socket);
+        }
+
+        return (true, null);
     }
     public async Task<ProfileInfo> GetProfileInfo(int UserId, int? ServerId)
     {
@@ -118,5 +146,47 @@ public class MainHandler
         };
 
         return ProfileInformation;
+    }
+
+    public async Task<bool> SendFriendRequest (int RecieverId, int SenderId, string SenderUsername)
+    {
+        var RequestSuccessful =  await DBHandler.ExecuteAsync(@"
+            INSERT INTO notifications (
+                sender_id,
+                request_id,
+                type
+            )
+            VALUES (
+                @sender_id,
+                @request_id,
+                @type
+            );
+        ", cmd =>
+        {
+            cmd.Parameters.AddWithValue("sender_id", SenderId);
+            cmd.Parameters.AddWithValue("request_id", RecieverId);
+            cmd.Parameters.AddWithValue("type", true);
+        }).ContinueWith(t => t.Result > 0);
+
+        if (RequestSuccessful)
+        {
+            var Result = UserOnline(RecieverId);
+            var Online = Result.IsOnline;
+            var Socket = Result.UserSocket;
+
+            var UserJson = JsonSerializer.Serialize(new FriendRequest
+            {
+                UserId = SenderId,
+                Username = SenderUsername
+            });
+
+            if (Online == true)
+            {
+                await ServerControll.SendUpdate(Socket, RecieverId.ToString(), UserJson);
+            }
+            return true;
+        }
+
+        return false;
     }
 }
