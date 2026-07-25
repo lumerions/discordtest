@@ -7,6 +7,8 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Identity;
 
+namespace Internal.Authenication;
+
 [ApiController]
 [Route("/auth/{controller}")]
 public class AuthenicationController : ControllerBase
@@ -29,7 +31,7 @@ public class AuthenicationController : ControllerBase
         return null;
     }
 
-    public string SetJWTValue(IConfiguration configuration, long UserId, string Email, string Username)
+    public string SetJWTValue(IConfiguration configuration, int UserId, string Email, string Username)
     {
         var JWTKey = configuration["Main:JWTKEY"];
         var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JWTKey!));

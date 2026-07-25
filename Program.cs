@@ -6,6 +6,7 @@ using Internal.Database;
 using Internal.Redis;
 using System.Threading.RateLimiting;
 using Internal.Shared;
+using Internal.Data;
 using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -42,6 +43,7 @@ builder.Services.AddRateLimiter(options =>
         limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
     });
 });
+
 
 builder.Services.AddSingleton<SharedMethods.ServerIdUserIdConnections>();
 builder.Services.AddSingleton<SharedMethods.WebSocketChannelIdConnections>();
