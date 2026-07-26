@@ -194,14 +194,19 @@ public class MessageHandler
                         @message_id,
                         sm.user_id
                     FROM server_members sm
+                    JOIN users u ON u.id = sm.user_id
                     WHERE sm.server_id = @server_id
-                    AND sm.user_id = ANY(@user_ids);"
+                    AND sm.user_id = ANY(@user_ids)
+                    AND u.profile_status != 2;"
                 : @"INSERT INTO server_message_mentions (message_id, user_id)
                     SELECT
                         @message_id,
                         sm.user_id
                     FROM server_members sm
-                    WHERE sm.server_id = @server_id;";
+                    JOIN users u ON u.id = sm.user_id
+                    WHERE sm.server_id = @server_id
+                    AND u.profile_status NOT IN (1);
+                    ";
 
                 await using var InsertNewNotificationsCmd = new NpgsqlCommand(SQL, conn);
 

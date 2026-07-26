@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using Internal.Messages;
 using Internal.Roles;
@@ -8,8 +9,19 @@ using Npgsql;
 
 namespace Internal.Servers;
 
+public record Members (
+    Guid RoleId,
+    int RoleHolderId,
+    int RolePosition,
+    string RoleName,
+    int RoleColor,
+    long Permissions,
+    string RoleHolderName
+);
+
+
 public record Role (
-    int RoleId,
+    Guid RoleId,
     string RoleName,
     int Color,
     long Position,
@@ -30,11 +42,13 @@ public class Server
 
     private readonly DatabaseHandler DBHandler;
     private readonly MessageHandler MsgHandler;
-    public Server(DatabaseHandler handler_, MessageHandler MsgHandler_, SharedMethods.WebSocketSessionManager manager)
+    private readonly SharedMethods.ServerIdUserIdConnections ServerIdUserIdConns;
+    public Server (SharedMethods.ServerIdUserIdConnections ServerIdUserIdConns_, DatabaseHandler handler_, MessageHandler MsgHandler_, SharedMethods.WebSocketSessionManager manager)
     {
         DBHandler = handler_;
         MsgHandler = MsgHandler_;
         Manager = manager;
+        ServerIdUserIdConns = ServerIdUserIdConns_;
     }
 
     public async Task<bool> DeleteGuild(Guid ServerId, int ServerOwnerId)
@@ -489,7 +503,81 @@ public class Server
         }
     }
 
-    public async Task<List<Role>> ViewRoles(Guid ServerId)
+
+    public async Task<List<Members>> GetMemberList (Guid ServerId, Guid? LastId, int? LastPosition)
+    {
+        await using var conn = await DBHandler.GetConnection();
+        string MemberGetSql = LastId == null ? @"
+            SELECT 
+                sr.id,
+                sr.user_id,
+                sr.position,
+                sr.name,
+                sr.color,
+                sr.permissions,
+                u.username
+            FROM server_roles sr
+            JOIN users u ON u.id = sr.user_id
+            WHERE sr.server_id = @serverId
+            ORDER BY sr.position DESC, sr.id DESC
+            LIMIT 50;" : @"
+            SELECT 
+                sr.id,
+                sr.user_id,
+                sr.position,
+                sr.name,
+                sr.color,
+                sr.permissions,
+                u.username
+            FROM server_roles sr
+            JOIN users u ON u.id = sr.user_id
+            WHERE sr.server_id = @serverId
+            AND (
+                sr.position < @lastPosition
+                OR (sr.position = @lastPosition AND sr.id < @lastId)
+            )
+            ORDER BY sr.position DESC, sr.id DESC
+            LIMIT 50;
+        ";
+
+        await using var cmd = new NpgsqlCommand(MemberGetSql, conn);
+        cmd.Parameters.AddWithValue("serverId", ServerId);
+
+        if (LastId != null)
+        {
+            cmd.Parameters.AddWithValue("lastPosition", LastPosition);
+            cmd.Parameters.AddWithValue("lastId", LastId);
+        }
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        var RoleList = new List<Members>();
+
+        while (await reader.ReadAsync())
+        {
+            var RoleId = reader.GetGuid(0);
+            var RoleHolderId = reader.GetInt32(1);
+            var RolePosition = reader.GetInt32(2);
+            var RoleName = reader.GetString(3);
+            var RoleColor = reader.GetInt32(4);
+            var Permissions = reader.GetInt64(5);
+            var RoleHolderUsername = reader.GetString(6);
+
+            RoleList.Add(new Members
+            (
+                RoleId,
+                RoleHolderId,
+                RolePosition,
+                RoleName,
+                RoleColor,
+                Permissions,
+                RoleHolderUsername
+            ));
+        }
+
+        return RoleList;
+    }
+
+    public async Task<List<Role>> ViewRolesById(Guid ServerId, int ViewRoleId)
     {
         try
         {
@@ -500,7 +588,7 @@ public class Server
             var Roles = new List<Role>();
             while (await reader.ReadAsync())
             {
-                var RoleId = reader.GetInt32(0);
+                var RoleId = reader.GetGuid(0);
                 var RoleName = reader.GetString(1);
                 var Color = reader.GetInt32(2);
                 var Position = reader.GetInt64(3);
@@ -515,7 +603,9 @@ public class Server
                 ));
             }
 
-            return Roles;
+            var HighestPositionRoles = Roles.OrderByDescending(item => item.Position).ToList();
+
+            return HighestPositionRoles;
         } catch (Exception error) {
             Console.WriteLine(error);
             return new List<Role>();
@@ -582,8 +672,8 @@ public class Server
         }
     }
 
-    public int GetOnlineCountByServerId ()
+    public int GetOnlineCountByServerId (Guid ServerId)
     {
-        return Manager.Users.Count;
+        return ServerIdUserIdConns.ServerIdUsers[ServerId.ToString()].Count;
     }
 }

@@ -152,15 +152,19 @@ public class MainHandler
     {
         var RequestSuccessful =  await DBHandler.ExecuteAsync(@"
             INSERT INTO notifications (
+                user_id,
                 sender_id,
                 request_id,
                 type
             )
-            VALUES (
+            SELECT
+                u.id,
                 @sender_id,
                 @request_id,
                 @type
-            );
+            FROM users u
+            WHERE u.id = @request_id
+            AND u.profile_status != 2;
         ", cmd =>
         {
             cmd.Parameters.AddWithValue("sender_id", SenderId);

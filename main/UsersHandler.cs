@@ -102,4 +102,19 @@ public class UsersHandler
         
         return success;
     }
+
+    public async Task<bool> RejectFriendRequest (Guid NotificationId)
+    {
+        var Conn = await DBHandler.GetConnection();
+        var Cmd = new NpgsqlCommand($"DELETE FROM notifications WHERE id = @NotificationId RETURNING id;", Conn);
+        Cmd.Parameters.AddWithValue("NotificationId", NotificationId);
+        var Result = await Cmd.ExecuteScalarAsync();
+
+        if (Result == null)
+        {
+            return false;
+        }
+        
+        return true;
+    }
 }
