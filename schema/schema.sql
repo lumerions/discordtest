@@ -15,6 +15,16 @@ CREATE TABLE IF NOT EXISTS users (
     profile_status SMALLINT NOT NULL DEFAULT 0 -- 0 = Idle 1 = dnd 2 = invisible 3 = online
 );
 
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id SERIAL PRIMARY KEY,
+    user_location TEXT NOT NULL,
+    user_device TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    session_token VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS avatar_uploads (
     id UUID PRIMARY KEY NOT NULL,
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -22,7 +32,7 @@ CREATE TABLE IF NOT EXISTS avatar_uploads (
     file_size BIGINT NOT NULL,
     mime_type VARCHAR(100),
     storage_path TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS role_icon_uploads (
@@ -33,7 +43,7 @@ CREATE TABLE IF NOT EXISTS role_icon_uploads (
     file_size BIGINT NOT NULL,
     mime_type VARCHAR(100),
     storage_path TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS dm_conversations (
@@ -110,7 +120,8 @@ CREATE TABLE IF NOT EXISTS server_channels (
     name VARCHAR(100) NOT NULL,
     type VARCHAR(20) NOT NULL, -- 'text', 'voice', 'category'
     position INT NOT NULL DEFAULT 0,
-    rules_channel BOOLEAN NOT NULL DEFAULT FALSE
+    rules_channel BOOLEAN NOT NULL DEFAULT FALSE,
+    channel_topic VARCHAR(100) DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS server_settings (
@@ -176,7 +187,7 @@ CREATE TABLE IF NOT EXISTS server_invites (
     channel_id UUID REFERENCES server_channels(id) ON DELETE SET NULL,
     max_uses SMALLINT, -- 32000 = unlimited
     uses SMALLINT NOT NULL DEFAULT 0, 
-    expires_at TIMESTAMP,
+    expires_at TIMESTAMP, -- null = unlimited
     is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );

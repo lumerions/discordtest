@@ -16,10 +16,23 @@ using System.Collections.Concurrent;
 
 namespace Internal.ServerCont;
 
+public record RevokeInviteDto (
+    [Required] Guid ServerId,
+    [Required] string InviteCode
+);
+
+public record InviteDto (
+    [Required] Guid ServerId,
+    [Required] Guid ChannelId,
+    [Required] string ExpiresAt,
+    [Required] int MaxUses 
+);
+
 public record NewChannel (
     [Required] Guid ServerId,
     [Required] string ChannelName,
     [Required] string ChannelType,
+    [Required] string ChannelTopic,
     [Required] int Position // frontend can determine this
 );
 
@@ -29,9 +42,10 @@ public record ChangeNickname (
     [Required] int UserId
 );
 
-public record KickMemb (
+public record KickOrLeave (
     [Required] Guid ServerId,
-    [Required] int UserId
+    [Required] int UserId,
+    [Required] bool Kick
 );
 
 public record CreateServerDto (
@@ -44,7 +58,7 @@ public record DeleteServerDto (
 
 public record JoinServerDto (
     [Required] Guid ServerId,
-    [Required] Guid InviteCode
+    [Required] string InviteCode
 );
 
 public record BanOrMuteDto (
@@ -305,9 +319,10 @@ public class ServersController : ControllerBase
 
     [Authorize]
     [EnableRateLimiting("api")]
-    [HttpPost("kick-user")]
-    public async Task<IActionResult> KickMember ([FromBody] KickMemb request)
+    [HttpPost("kick-leave-server")]
+    public async Task<IActionResult> KickOrLeaveMember ([FromBody] KickOrLeave request)
     {
+        var KickMember = request.Kick;
         var KickUserId = request.UserId;
         var ServerId = request.ServerId;
         var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
@@ -319,18 +334,21 @@ public class ServersController : ControllerBase
         {
             var PermissionInfo = await ServerHandler.GetChannelIdsByServerId(ServerId, IdValue, true);
 
-            if (PermissionInfo.ContainsKey("Permissions")) {
-                return BadRequest();
-            }
-            
-            string PermissionString = PermissionInfo.GetValueOrDefault("Permissions");
-            long PermissionNumber = long.Parse(PermissionString);
-            var Perm = (Permissions) PermissionNumber;
-            var canKick = (Perm & Permissions.KickMembers) != 0;
-
-            if (!canKick)
+            if (KickMember)
             {
-                return Unauthorized();
+                if (PermissionInfo.ContainsKey("Permissions")) {
+                    return BadRequest();
+                }
+                
+                string PermissionString = PermissionInfo.GetValueOrDefault("Permissions");
+                long PermissionNumber = long.Parse(PermissionString);
+                var Perm = (Permissions) PermissionNumber;
+                var canKick = (Perm & Permissions.KickMembers) != 0;
+
+                if (!canKick)
+                {
+                    return Unauthorized();
+                }
             }
 
             await ServerHandler.KickUser(ServerId, KickUserId);
@@ -362,11 +380,22 @@ public class ServersController : ControllerBase
                 return BadRequest();
             }
 
-            var CanChangeNickname = (Perm & Permissions.ChangeNickname) != 0;
-
-            if (!CanChangeNickname)
+            if (NewNicknameId == IdValue)
             {
-                return Unauthorized();
+                var CanChangePersonalNickname = (Perm & Permissions.ChangeNickname) != 0;
+
+                if (!CanChangePersonalNickname)
+                {
+                    return Unauthorized();
+                }
+            } else
+            {
+                var CanManageNicknames = (Perm & Permissions.ManageNicknames) != 0;
+
+                if (!CanManageNicknames)
+                {
+                    return Unauthorized();
+                }
             }
 
             await ServerHandler.ChangeServerNickname(ServerId, NewNicknameId, NewNickname);
@@ -384,6 +413,7 @@ public class ServersController : ControllerBase
         var ChannelName = request.ChannelName;
         var ChannelPosition = request.Position;
         var ServerId = request.ServerId;
+        var ChannelTopic = request.ChannelTopic;
         var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
         var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
@@ -404,15 +434,98 @@ public class ServersController : ControllerBase
                 return BadRequest();
             }
 
-            var CanChangeNickname = (Perm & Permissions.ManageChannels) != 0;
+            var CanManageChannels = (Perm & Permissions.ManageChannels) != 0;
 
-            if (!CanChangeNickname)
+            if (!CanManageChannels)
             {
                 return Unauthorized();
             }
 
-            await ServerHandler.CreateServerChannel(ServerId, ChannelType, ChannelPosition, ChannelName);
+            await ServerHandler.CreateServerChannel(ServerId, ChannelType, ChannelPosition, ChannelName, ChannelTopic);
         } // websocket support needs to be added for all of this but ill do it later
+        
+        return BadRequest("Error getting userid.");
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("invite-members")]
+    public async Task<IActionResult> NewInvite ([FromBody] InviteDto request)
+    {
+        var ChannelId = request.ChannelId;
+        var ServerId = request.ServerId;
+        var MaxUses = request.MaxUses;
+        var Expiration = request.ExpiresAt;
+
+        if (Expiration != "30d" && Expiration != "Never" && Expiration != "7d" && Expiration != "1d" && Expiration != "12h" && Expiration != "6h" && Expiration != "1h" && Expiration != "30m")
+        {
+            return BadRequest("Invalid expiration time.");
+        }
+
+        if (MaxUses != 1 && MaxUses != 5 && MaxUses != 10 && MaxUses != 25 && MaxUses != 50 && MaxUses != 100)
+        {
+            return BadRequest("Invalid Max Uses.");
+        }
+
+        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
+        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
+
+        if (int.TryParse(UserId, out var IdValue))
+        {
+            var PermissionResult = await GetPerm(ServerId, IdValue, true);
+            var Perm = PermissionResult.Perm;
+          
+            if (Perm == null) 
+            { 
+                return BadRequest();
+            }
+
+            var CanInviteUsers = (Perm & Permissions.CreateInvites) != 0;
+
+            if (!CanInviteUsers)
+            {
+                return Unauthorized();
+            }
+            
+            await ServerHandler.CreateNewServerInvite(ServerId, IdValue, MaxUses, ChannelId, Expiration);
+        }
+        
+        return BadRequest("Error getting userid.");
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("revoke-invite")]
+    public async Task<IActionResult> RevokeInvite ([FromBody] RevokeInviteDto request)
+    {
+        var ServerId = request.ServerId;
+        var InviteCode = request.InviteCode;
+        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
+        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
+
+        if (int.TryParse(UserId, out var IdValue))
+        {
+            var PermissionResult = await GetPerm(ServerId, IdValue, true);
+            var Perm = PermissionResult.Perm;
+          
+            if (Perm == null) 
+            { 
+                return BadRequest();
+            }
+
+            var CanRevokeInvites = (Perm & Permissions.Administrator) != 0;
+
+            if (!CanRevokeInvites)
+            {
+                return Unauthorized();
+            }
+            
+            await ServerHandler.RevokeInvite(ServerId, InviteCode);
+        }
         
         return BadRequest("Error getting userid.");
     }

@@ -22,6 +22,18 @@ public class SharedMethods
         RedisDatabase = redis_.GetRedisDatabase();
         websocketconns_ = websocketconns;
     }
+
+    public Dictionary<string, string> UploadsInfo ()
+    {
+        var TypeInfo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            {"Avatar", "avatar_uploads"},
+            {"RoleIcons", "role_icon_uploads"}
+        };
+
+        return TypeInfo;
+    }
+
     public class ServerIdUserIdConnections
     {
         public ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> ServerIdUsers = new(); 
@@ -90,6 +102,7 @@ public class SharedMethods
 
         await Task.WhenAll(MessageTasks);
     }
+
 
     public static bool AllowedExtension(string Extension)
     {

@@ -189,4 +189,24 @@ public class MainHandler
 
         return false;
     }
+
+    public async Task<bool> ChangeProfileStatus (int ProfileStatusNumber, int ChangerId)
+    {
+        if (ProfileStatusNumber != 1 && ProfileStatusNumber != 2 && ProfileStatusNumber != 3)
+        {
+            return false;
+        }
+        
+        var RequestSuccessful = await DBHandler.ExecuteAsync(@"
+            UPDATE users
+            SET profile_status = @ProfileStatusNumber 
+            WHERE id = @ChangerId;
+        ", cmd =>
+        {
+            cmd.Parameters.AddWithValue("ChangerId", ChangerId);
+            cmd.Parameters.AddWithValue("ProfileStatusNumber", ProfileStatusNumber);
+        }).ContinueWith(t => t.Result > 0);
+
+        return RequestSuccessful;
+    }
 }

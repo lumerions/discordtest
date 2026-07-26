@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Security.Claims;
-using System.Threading;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
@@ -21,10 +20,12 @@ public class UploadImage
 public class UsersController : ControllerBase
 {
     private readonly DatabaseHandler DBHandler;
+    private readonly SharedMethods Shared;
 
-    public UsersController(DatabaseHandler DBHandler_)
+    public UsersController(DatabaseHandler DBHandler_, SharedMethods Shared_)
     {
         DBHandler = DBHandler_;
+        Shared = Shared_;
     }
 
     [Authorize]
@@ -34,12 +35,7 @@ public class UsersController : ControllerBase
     {
         try
         {
-            var TypeInfo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                {"Avatar", "avatar_uploads"},
-                {"RoleIcons", "role_icon_uploads"}
-            };
-
+            var TypeInfo = Shared.UploadsInfo();
             var UploadType = request.UploadType;
             if (!TypeInfo.TryGetValue(UploadType, out var TypeInfoValue))
             {

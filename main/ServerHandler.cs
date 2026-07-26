@@ -1,4 +1,5 @@
 using System;
+using System.Security.Cryptography;
 using Internal.Messages;
 using Internal.Roles;
 using Internal.Shared;
@@ -135,7 +136,7 @@ public class Server
         }
     }
 
-    public async Task<string> JoinServer(Guid ServerId, int JoinerId, string JoinerUsername, Guid InviteCode)
+    public async Task<string> JoinServer(Guid ServerId, int JoinerId, string JoinerUsername, string InviteCode)
     {
         try
         {
@@ -149,9 +150,8 @@ public class Server
                 SELECT is_revoked
                 FROM server_invites
                 WHERE id = @InviteCode
-                AND expires_at > NOW()
+                AND (expires_at IS NULL OR expires_at > NOW())
                 AND (max_uses = 32000 OR uses < max_uses);
-
 
                 SELECT systems_channel
                 FROM server_settings
@@ -331,6 +331,53 @@ public class Server
         }
     }
 
+    public async Task<bool> CreateNewServerInvite(Guid ServerId, int CreatorId, int MaxUses, Guid ChannelId, string ExpiresAt)
+    {   
+        var newInviteCode = RandomNumberGenerator.GetHexString(32);
+        try
+        {
+            return await DBHandler.ExecuteAsync(@"
+                INSERT INTO server_invites (
+                    server_id,
+                    created_by,
+                    code,
+                    channel_id,
+                    max_uses,
+                    expires_at
+                )
+                VALUES (
+                    @server_id,
+                    @created_by,
+                    @code,
+                    @channel_id,
+                    @max_uses,
+                    CASE @expiration
+                        WHEN '30m'  THEN NOW() + INTERVAL '30 minutes'
+                        WHEN '1h'   THEN NOW() + INTERVAL '1 hour'
+                        WHEN '6h'   THEN NOW() + INTERVAL '6 hours'
+                        WHEN '12h'  THEN NOW() + INTERVAL '12 hours'
+                        WHEN '1d'   THEN NOW() + INTERVAL '1 day'
+                        WHEN '7d'   THEN NOW() + INTERVAL '7 days'
+                        WHEN '30d'  THEN NOW() + INTERVAL '30 days'
+                        WHEN 'Never' THEN NULL
+                    END
+                );
+            ", cmd =>
+            {
+                cmd.Parameters.AddWithValue("server_id", ServerId);
+                cmd.Parameters.AddWithValue("created_by", CreatorId);
+                cmd.Parameters.AddWithValue("code", newInviteCode);
+                cmd.Parameters.AddWithValue("channel_id", ChannelId);
+                cmd.Parameters.AddWithValue("max_uses", MaxUses);
+                cmd.Parameters.AddWithValue("expiration", ExpiresAt);
+            }).ContinueWith(v => v.Result > 0);
+
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return false;
+        }
+    }
+
     public async Task<bool> KickUser(Guid ServerId, int UserId)
     {
         try
@@ -347,6 +394,27 @@ public class Server
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
+        }
+    }
+
+    public async Task<int> GetUserIdByName(string Username)
+    {
+        try
+        {
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(@"SELECT id FROM users WHERE username = @username;",conn);
+            cmd.Parameters.AddWithValue("username", Username);
+            await using var reader = await cmd.ExecuteReaderAsync();
+
+            if (!await reader.ReadAsync())
+            {
+                return 0;
+            }
+
+            return reader.GetInt32(0);
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return 0;
         }
     }
 
@@ -370,7 +438,25 @@ public class Server
         }
     }
 
-    public async Task<bool> CreateServerChannel(Guid ServerId, string ChannelType, int Position, string ChannelName)
+    public async Task<bool> RevokeInvite(Guid ServerId, string InviteCode)
+    {
+        try
+        {
+            return await DBHandler.ExecuteAsync(@"
+                UPDATE server_invites SET is_revoked = @is_revoked WHERE server_id = @ServerId AND code = @code;
+            ", cmd =>
+            {
+                cmd.Parameters.AddWithValue("ServerId", ServerId);
+                cmd.Parameters.AddWithValue("code", InviteCode);
+                cmd.Parameters.AddWithValue("is_revoked", true);
+            }).ContinueWith(t => t.Result > 0);
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return false;
+        }
+    }
+
+    public async Task<bool> CreateServerChannel(Guid ServerId, string ChannelType, int Position, string ChannelName, string ChannelTopic)
     {
         try
         {
@@ -379,13 +465,15 @@ public class Server
                     server_id,
                     name,
                     type,
-                    position
+                    position,
+                    channel_topic
                 )
                 VALUES (
                     @server_id,
                     @name,
                     @type,
-                    @position
+                    @position,
+                    @channel_topic
                 );
             ", cmd =>
             {
@@ -393,6 +481,7 @@ public class Server
                 cmd.Parameters.AddWithValue("type", ChannelType);
                 cmd.Parameters.AddWithValue("position", Position);
                 cmd.Parameters.AddWithValue("name", ChannelName);
+                cmd.Parameters.AddWithValue("channel_topic", ChannelTopic);
             }).ContinueWith(t => t.Result > 0);
         } catch (Exception error) {
             Console.WriteLine(error);

@@ -175,6 +175,12 @@ public class MessageHandler
             HashSet<Guid> ChannelIds = reader.GetFieldValue<Guid[]>(3).ToHashSet();
             Permissions Perm = (Permissions) MessagePermissionNumber;
             var CanPing = (Perm & Permissions.MentionEveryone) != 0;
+            var CanMessage = (Perm & Permissions.SendMessages) != 0;
+
+            if (!CanMessage)
+            {
+                return false;
+            }
 
             if (NewMessage == "@everyone" || NewMessage == "@here")
             {
