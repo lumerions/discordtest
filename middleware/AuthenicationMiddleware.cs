@@ -31,9 +31,19 @@ public class AuthenicationMiddleware
             return;
         }
 
-      //  var Conn = await DBHandler.GetConnection();
-       // await using var CheckAuth = new NpgsqlCommand("", Conn);
-// TODO finish this 
+        var Conn = await DBHandler.GetConnection();
+        await using var CheckAuth = new NpgsqlCommand("SELECT 1 FROM user_sessions WHERE session_token = @session_token AND expires_at > NOW();", Conn);
+        CheckAuth.Parameters.AddWithValue("session_token", JwtAuthenicationToken);
+
+        var Result = await CheckAuth.ExecuteScalarAsync();
+
+        if (Result == null)
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsJsonAsync(ResponseError);
+            return;
+        }
+
         await next_(context);
     }
 }

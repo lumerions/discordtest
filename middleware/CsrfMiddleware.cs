@@ -21,7 +21,7 @@ public class CsrfMiddleware
 
     public async Task InvokeAsync (HttpContext context)
     {
-        var CsrfToken = context.Request.Cookies["csrf"];
+        var CsrfToken = context.Request.Cookies["x-csrf-token"];
         var CsrfHeaderToken = context.Request.Headers["x-csrf-token"];
 
         var ResponseError = new CsrfMiddlewareResponseError

@@ -3,12 +3,31 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
+using System;
 using System.Security.Claims;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 using System.ComponentModel.DataAnnotations;
 using Npgsql;
+using UAParser;
 using Internal.Data;
 using Internal.Database;
 using Internal.Authenication;
+using Internal.Accounts;
+using System.Security.Cryptography;
+
+public class IpApiResponse
+{
+    public string country { get; set; }
+    public string regionName { get; set; }
+    public string city { get; set; }
+}
+
+public record ChangePasswordDto (
+    [Required] string CurrentPassword,
+    [Required] string NewPassword
+);
 
 public record RegisterDto (
     [Required] [EmailAddress] string Email,
@@ -19,26 +38,74 @@ public record RegisterDto (
     [Required] string Year
 );
 
-
 public record LoginDto (
     [Required] string Email,
     [Required] string Password
 );
 
 [ApiController]
-[Route("internal/account/")]
+[Route("/api/internal/account/")]
 public class AccountController : ControllerBase
 {
     private readonly DataHandler datahandler;
     private readonly IConfiguration configuration;
     private readonly DatabaseHandler DBHandler;
     private readonly AuthenicationController Authenication;
-    public AccountController (DataHandler datahandler_, IConfiguration configuration_, DatabaseHandler DBHandler_, AuthenicationController Authenication_)
+    private readonly IHttpClientFactory HttpClientfactory;
+    private readonly AccountHandler Accounts;
+    public AccountController (AccountHandler Accounts_, IHttpClientFactory HttpClientfactory_, DataHandler datahandler_, IConfiguration configuration_, DatabaseHandler DBHandler_, AuthenicationController Authenication_)
     {
         datahandler = datahandler_;
         configuration = configuration_;
         DBHandler = DBHandler_;
         Authenication = Authenication_;
+        HttpClientfactory = HttpClientfactory_;
+        Accounts = Accounts_;
+    }
+
+    public async Task<string> GetLocationString (string IPAddress) 
+    {
+        var Client = HttpClientfactory.CreateClient();
+
+        try {
+            var Response = await Client.GetStringAsync($"http://ip-api.com/json/{IPAddress}");
+
+            if (string.IsNullOrEmpty(Response))
+            {
+                throw new Exception ("Invalid response");
+            }
+
+            var JsonObject = JsonSerializer.Deserialize<IpApiResponse>(Response);
+
+            if (JsonObject == null)
+            {
+                throw new Exception ("Invalid response");
+            }
+
+            var RegionName = JsonObject.regionName;
+            var Country = JsonObject.country;
+            var City = JsonObject.city;
+            var LocationString = $"{City},{RegionName},{Country}";
+
+            return LocationString;
+        } catch (Exception err) {
+            Console.WriteLine(err);
+            return "Unknown Location";
+        }
+    }
+
+    public (string OS, string Browser, string IP) GetUserInfo ()
+    {
+        var UserIPAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+
+        if (string.IsNullOrEmpty(UserIPAddress)) UserIPAddress = "8.8.8.8";
+
+        var UserAgent = HttpContext.Request.Headers["User-Agent"].ToString();
+        var parser = Parser.GetDefault();
+        var clientInfo = parser.Parse(UserAgent);
+        var OS = clientInfo.OS.Family;
+        var Browser = clientInfo.UA.Family;
+        return (OS, Browser, UserIPAddress);
     }
 
     [EnableRateLimiting("api")]
@@ -104,6 +171,12 @@ public class AccountController : ControllerBase
         var EncryptKeyBytes = Convert.FromBase64String(EncryptKey);
         var UserEmail = datahandler.Decrypt(ciphertext, nonce, tag, EncryptKeyBytes);
         var Token = Authenication.SetJWTValue(configuration, UserId, UserEmail, Username);
+        var UserInfo = GetUserInfo();
+        var IPAddress = UserInfo.IP;
+        var OperatingSys = UserInfo.OS;
+        var Browser = UserInfo.Browser;
+        var Location = await GetLocationString(IPAddress);
+        var CsrfToken = RandomNumberGenerator.GetHexString(32);
 
         Response.Cookies.Append("jwt", Token, new CookieOptions
         {
@@ -111,9 +184,22 @@ public class AccountController : ControllerBase
             Secure = true,
             SameSite = SameSiteMode.Strict,
             Expires = DateTime.UtcNow.AddDays(30),
+            Path = "/",
             MaxAge = TimeSpan.FromDays(30)
         });
-        
+
+        Response.Cookies.Append("x-csrf-token", CsrfToken, new CookieOptions
+        {
+            HttpOnly = false,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Expires = DateTime.UtcNow.AddDays(30),
+            Path = "/",
+            MaxAge = TimeSpan.FromDays(30)
+        });
+
+        await Accounts.CreateNewSession(OperatingSys, Browser, Location, UserId, Token);
+
         return Ok(new
         {
             success = true
@@ -205,6 +291,12 @@ public class AccountController : ControllerBase
 
         var UserId = Convert.ToInt32(Result);
         var Token = Authenication.SetJWTValue(configuration, UserId, Email, Username);
+        var UserInfo = GetUserInfo();
+        var IPAddress = UserInfo.IP;
+        var OperatingSys = UserInfo.OS;
+        var Browser = UserInfo.Browser;
+        var Location = await GetLocationString(IPAddress);
+        var CsrfToken = RandomNumberGenerator.GetHexString(32);
 
         Response.Cookies.Append("jwt", Token, new CookieOptions
         {
@@ -212,9 +304,85 @@ public class AccountController : ControllerBase
             Secure = true,
             SameSite = SameSiteMode.Strict,
             Expires = DateTime.UtcNow.AddDays(30),
+            Path = "/",
             MaxAge = TimeSpan.FromDays(30)
         });
-        
+
+        Response.Cookies.Append("x-csrf-token", CsrfToken, new CookieOptions
+        {
+            HttpOnly = false,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Expires = DateTime.UtcNow.AddDays(30),
+            Path = "/",
+            MaxAge = TimeSpan.FromDays(30)
+        });
+
+        await Accounts.CreateNewSession(OperatingSys, Browser, Location, UserId, Token);
+
+        return Ok(new
+        {
+            success = true
+        });
+    }
+
+    [EnableRateLimiting("api")]
+    [HttpPost("changepassword")]
+    public async Task<IActionResult> ChangePassword ([FromBody] ChangePasswordDto request)
+    {
+        var CurrentPassword = request.CurrentPassword;
+        var NewPassword = request.NewPassword;
+        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
+
+        if (NewPassword.Length < 8 || NewPassword.Length > 128)
+        {
+            return BadRequest("Invalid password length must be > 8 or < 128.");
+        }
+
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand("SELECT password_hash FROM users WHERE id = @id;", conn);
+
+        cmd.Parameters.AddWithValue("id", UserId);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        if (!await reader.ReadAsync())
+        {
+            return BadRequest("Username or password is invalid.");
+        }
+
+        var PasswordHash = reader.GetString(0);
+
+        if (!datahandler.VerifyArgonHash(CurrentPassword, PasswordHash))
+        {
+            return BadRequest("Username or password is invalid.");
+        }
+
+        await reader.DisposeAsync();
+
+        var NewPasswordHash = datahandler.ArgonHash(NewPassword);
+        await using var UpdatePassword = new NpgsqlCommand(@"
+            WITH deleted AS (
+                DELETE FROM user_sessions
+                WHERE user_id = @id
+            )
+            UPDATE users
+            SET password_hash = @password_hash
+            WHERE id = @id
+            RETURNING 1;
+        ", conn);
+        UpdatePassword.Parameters.AddWithValue("id", UserId);
+        UpdatePassword.Parameters.AddWithValue("password_hash", NewPasswordHash);
+
+        var UpdateResult = await UpdatePassword.ExecuteScalarAsync();
+
+        if (UpdateResult == null) 
+        {
+            return BadRequest("Username or password is invalid.");
+        }
+
         return Ok(new
         {
             success = true

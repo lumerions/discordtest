@@ -71,7 +71,7 @@ public record BanOrMuteDto (
 );
 
 [ApiController]
-[Route("/internal/servers/")]
+[Route("/api/internal/servers/")]
 public class ServersController : ControllerBase
 {
     private readonly Server ServerHandler;

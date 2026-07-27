@@ -19,11 +19,13 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS user_sessions (
     id SERIAL PRIMARY KEY,
     user_location TEXT NOT NULL,
-    user_device TEXT NOT NULL,
+    user_browser TEXT NOT NULL,
+    user_os TEXT NOT NULL,
     user_id INTEGER NOT NULL,
     session_token VARCHAR(255) NOT NULL UNIQUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP NOT NULL
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    active_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS avatar_uploads (

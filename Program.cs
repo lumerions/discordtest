@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
@@ -33,8 +34,12 @@ builder.Services
         };
 });
 
-builder.Services.AddAuthorization();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+});
 
+builder.Services.AddAuthorization();
 builder.Services.AddRateLimiter(options =>
 {
     options.AddFixedWindowLimiter("api", limiterOptions =>
@@ -46,7 +51,6 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
-
 builder.Services.AddSingleton<SharedMethods.ServerIdUserIdConnections>();
 builder.Services.AddSingleton<SharedMethods.WebSocketChannelIdConnections>();
 builder.Services.AddSingleton<RedisHandler>();
@@ -54,6 +58,7 @@ builder.Services.AddSingleton<DatabaseHandler>();
 builder.Services.AddSingleton<SharedMethods.WebSocketSessionManager>();
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
+builder.Services.AddHttpClient();
 
 var app = builder.Build();
 
@@ -68,6 +73,7 @@ app.UseWhen(context => context.Request.Path.StartsWithSegments("/api"), appBuild
     appBuilder.UseMiddleware<AuthenicationMiddleware>();
 });
 
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
