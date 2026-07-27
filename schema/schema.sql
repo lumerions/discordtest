@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     about_me VARCHAR(250),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    premium_expires_at TIMESTAMPTZ,
     dob TEXT NOT NULL,
     is_banned SMALLINT NOT NULL DEFAULT 0, -- 0 = Fine 1 = Banned 2 = Account Deleted
     profile_status SMALLINT NOT NULL DEFAULT 0 -- 0 = Idle 1 = dnd 2 = invisible 3 = online

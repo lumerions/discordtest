@@ -9,10 +9,9 @@ using Npgsql;
 using Internal.Data;
 using Internal.Database;
 using Internal.Authenication;
-using System.Security.Cryptography;
 
 public record RegisterDto (
-    [Required] string Email,
+    [Required] [EmailAddress] string Email,
     [Required] string Password,
     [Required] string Username,
     [Required] string Day,
@@ -49,15 +48,26 @@ public class AccountController : ControllerBase
         var Email = request.Email;
         var Password = request.Password;
         var SecretKey = configuration["Main:HMacSha256Key"];
+        var EncryptKey = configuration["Main:EncryptionKey"];
 
         if (string.IsNullOrEmpty(SecretKey))
         {
             return BadRequest("SecretHmac Key missing.");
         }
 
-        if (Password.Length < 8)
+        if (string.IsNullOrEmpty(EncryptKey))
         {
-            return BadRequest("Invalid password length.");
+            return BadRequest("EncryptKey Key missing.");
+        }
+
+        if (Password.Length < 8 || Password.Length > 128)
+        {
+            return BadRequest("Invalid password length must be > 8 or < 128.");
+        }
+
+        if (Email.Length > 320) 
+        {
+            return BadRequest("Email address is too long.");
         }
 
         byte[] SecretKeyBytes = Convert.FromBase64String(SecretKey);
@@ -91,8 +101,8 @@ public class AccountController : ControllerBase
             return Unauthorized("Invalid username or password.");
         }
 
-        var EncryptKey = RandomNumberGenerator.GetBytes(32); // actually add a real one lol 
-        var UserEmail = datahandler.Decrypt(ciphertext, nonce, tag, EncryptKey);
+        var EncryptKeyBytes = Convert.FromBase64String(EncryptKey);
+        var UserEmail = datahandler.Decrypt(ciphertext, nonce, tag, EncryptKeyBytes);
         var Token = Authenication.SetJWTValue(configuration, UserId, UserEmail, Username);
 
         Response.Cookies.Append("jwt", Token, new CookieOptions
@@ -116,28 +126,39 @@ public class AccountController : ControllerBase
     {
         var Email = request.Email;
         var Password = request.Password;
-        var Username = request.Username;
+        var Username = request.Username.Trim();
         var DayBorn = request.Day;
         var MonthBorn = request.Month;
         var YearBorn = request.Year;
         var SecretKey = configuration["Main:HMacSha256Key"];
+        var EncryptKey = configuration["Main:EncryptionKey"];
 
         if (string.IsNullOrEmpty(SecretKey))
         {
             return BadRequest("SecretHmac Key missing.");
         }
 
-        if (Password.Length < 8)
+        if (string.IsNullOrEmpty(EncryptKey))
         {
-            return BadRequest("Invalid password length.");
+            return BadRequest("EncryptKey Key missing.");
+        }
+
+        if (Password.Length < 8 || Password.Length > 128)
+        {
+            return BadRequest("Invalid password length must be > 8 or < 128.");
+        }
+
+        if (Email.Length > 320) 
+        {
+            return BadRequest("Email address is too long.");
         }
 
         var DOBString = $"{DayBorn}/{MonthBorn}/{YearBorn}";
         byte[] SecretKeyBytes = Convert.FromBase64String(SecretKey);
         var EmailHmacSha256 = datahandler.HmacSha256(Email, SecretKeyBytes);
         var PasswordHash = datahandler.ArgonHash(Password);
-        var EncryptKey = RandomNumberGenerator.GetBytes(32); // actually add a real one lol 
-        var EncryptionResult = datahandler.Encrypt(Email, EncryptKey);
+        var EncryptKeyBytes = Convert.FromBase64String(EncryptKey);
+        var EncryptionResult = datahandler.Encrypt(Email, EncryptKeyBytes);
         var nonce = EncryptionResult.nonce;
         var ciphertext = EncryptionResult.ciphertext;
         var tag = EncryptionResult.tag;

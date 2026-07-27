@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Internal.Database;
@@ -7,7 +8,8 @@ using Internal.Redis;
 using System.Threading.RateLimiting;
 using Internal.Shared;
 using Internal.Data;
-using Microsoft.AspNetCore.RateLimiting;
+using Middleware.Csrf;
+using Middleware.Authenication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -59,6 +61,12 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+
+app.UseWhen(context => context.Request.Path.StartsWithSegments("/api"), appBuilder =>
+{
+    appBuilder.UseMiddleware<CsrfMiddleware>();
+    appBuilder.UseMiddleware<AuthenicationMiddleware>();
+});
 
 app.UseHttpsRedirection();
 app.UseAuthentication();

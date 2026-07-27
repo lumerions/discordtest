@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Internal.Database;
 using Internal.Shared;
 using Internal.ServerCont;
+using Internal.Messages;
 using Npgsql;
 using System.Net.WebSockets;
 using System.Text.Json;
@@ -43,11 +44,13 @@ public class MainHandler
     private readonly DatabaseHandler DBHandler;
     private readonly SharedMethods.WebSocketSessionManager Manager;
     private readonly ServersController ServerControll;
-    public MainHandler(ServersController ServerController, DatabaseHandler databaseHandler, SharedMethods.WebSocketSessionManager manager)
+    private readonly MessageHandler MessageHand;
+    public MainHandler(MessageHandler MessageHand_, ServersController ServerController, DatabaseHandler databaseHandler, SharedMethods.WebSocketSessionManager manager)
     {
         DBHandler = databaseHandler;
         Manager = manager;
         ServerControll = ServerController;
+        MessageHand = MessageHand_;
     }
 
     public (bool IsOnline, WebSocket UserSocket) UserOnline (int UserId)
@@ -212,5 +215,60 @@ public class MainHandler
         }).ContinueWith(t => t.Result > 0);
 
         return RequestSuccessful;
+    }
+
+    public async Task<bool> ApplyNitroSub (int UserId)
+    {
+        var RequestSuccessful = await DBHandler.ExecuteAsync(@"
+            UPDATE users
+            SET premium_expires_at = NOW() + INTERVAL '7 days'
+            WHERE id = @UserId;
+        ", cmd =>
+        {
+            cmd.Parameters.AddWithValue("UserId", UserId);
+        }).ContinueWith(t => t.Result > 0);
+
+        return RequestSuccessful;
+    }
+
+    public async Task<bool> BoostServer (Guid ServerId, Guid ChannelId, int BoosterId, string BoosterName)
+    {   
+
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand(@"
+            INSERT INTO server_boosts (server_id, user_id)
+            SELECT @ServerId, @UserId
+            WHERE (
+                SELECT COUNT(*)
+                FROM server_boosts
+                WHERE user_id = @UserId
+            ) < 2
+            AND EXISTS (
+                SELECT 1
+                FROM users u
+                WHERE u.id = @UserId
+                AND u.premium_expires_at IS NOT NULL
+                AND NOW() < u.premium_expires_at
+            )
+
+            SELECT systems_channel
+            FROM server_settings
+            WHERE server_id = @ServerId;
+        ", conn);
+
+        cmd.Parameters.AddWithValue("ServerId", ServerId);
+        cmd.Parameters.AddWithValue("UserId", BoosterId);
+        await using var Reader = await cmd.ExecuteReaderAsync();
+
+        if (await Reader.NextResultAsync())
+        {
+            if (await Reader.ReadAsync())
+            {
+                var SystemChannelId = Reader.GetGuid(0);
+                await MessageHand.SendMessageInServer($"{BoosterName} just boosted the server!", BoosterId, ChannelId, "", true, null);
+            }
+        }
+
+        return false;
     }
 }
