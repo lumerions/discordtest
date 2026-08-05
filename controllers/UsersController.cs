@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Internal.Database;
 using Internal.Shared;
 using Microsoft.Extensions.Options;
-using System.Runtime.InteropServices;
+using Controllers.ControllBase;
 
 public class UploadImage
 {
@@ -17,7 +17,7 @@ public class UploadImage
 
 [ApiController]
 [Route("/api/users")]
-public class UsersController : ControllerBase
+public class UsersController : BaseController
 {
     private readonly DatabaseHandler DBHandler;
     private readonly SharedMethods Shared;
@@ -43,7 +43,6 @@ public class UsersController : ControllerBase
             }
 
             var AvatarFileUploadLimit = 8388608;
-            var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
             if (file == null || file.Length == 0) return BadRequest("No file.");
             if (file.Length > AvatarFileUploadLimit) return BadRequest("File too big!");

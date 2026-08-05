@@ -11,9 +11,10 @@ using System.Linq;
 using System.Collections.Concurrent;
 using Internal.Main;
 using Microsoft.AspNetCore.RateLimiting;
-
+using Controllers.ControllBase;
 
 namespace Internal.MainController;
+
 public class TypingRequest
 {
     public int DiscordChannelId {get; set;}
@@ -21,7 +22,7 @@ public class TypingRequest
 
 [ApiController]
 [Route("/api/")]
-public class MainController : ControllerBase
+public class MainController : BaseController
 {
     private readonly RedisHandler Redis;
     private readonly IDatabase RedisDatabase;
@@ -51,7 +52,6 @@ public class MainController : ControllerBase
     [HttpPost("ChannelInfo")]
     public async Task<IActionResult> ChannelInfo([FromBody] TypingRequest request)
     {
-        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var channelId = request.DiscordChannelId.ToString();
 
         if (UserId == null) return BadRequest("UserId doesn't exist.");

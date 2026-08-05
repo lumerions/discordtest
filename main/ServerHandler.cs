@@ -19,7 +19,6 @@ public record Members (
     string RoleHolderName
 );
 
-
 public record Role (
     Guid RoleId,
     string RoleName,
@@ -675,5 +674,133 @@ public class Server
     public int GetOnlineCountByServerId (Guid ServerId)
     {
         return ServerIdUserIdConns.ServerIdUsers[ServerId.ToString()].Count;
+    }
+
+    public async Task<Dictionary<string, string>> GetServerInfoByInvite (Guid InviteCode)
+    {
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand(@"
+            SELECT 
+                SE.created_at,
+                SI.server_id,
+                SI.is_revoked,
+                COUNT(SM.id) AS member_count
+            FROM server_invites SI
+            JOIN servers SE 
+                ON SE.server_id = SI.server_id
+            LEFT JOIN server_members SM 
+                ON SM.server_id = SI.server_id
+            WHERE SI.code = @code
+            AND (SI.expires_at IS NULL OR SI.expires_at > NOW())
+            AND (SI.max_uses = 32000 OR SI.uses < SI.max_uses)
+            GROUP BY SE.created_at, SI.server_id, SI.is_revoked;
+        ", conn);
+
+        cmd.Parameters.AddWithValue("code", InviteCode);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        var ServerInfo = new Dictionary<string, string>();
+
+        if (!await reader.ReadAsync())
+        {
+            return ServerInfo;
+        }
+
+        var ServerCreatedAt = reader.GetDateTime(0);
+        var ServerId = reader.GetGuid(1);
+        var IsRevoked = reader.GetBoolean(2);
+        var MemberCount = reader.GetInt32(3);
+        var OnlineMemberCount = GetOnlineCountByServerId(ServerId);
+
+        ServerInfo.Add("OnlineMemberCount", OnlineMemberCount.ToString());
+        ServerInfo.Add("MemberCount", MemberCount.ToString());
+        ServerInfo.Add("IsRevoked", IsRevoked.ToString());
+        ServerInfo.Add("OnlineMemberCount", OnlineMemberCount.ToString());
+
+        return ServerInfo;
+    }
+
+    public async Task<long> GetPermissionNumber (Guid ServerId, int UserId)
+    {
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand(@"
+            SELECT bit_or(permissions) AS effective_permissions
+            FROM server_roles
+            WHERE user_id = @user_id
+            AND server_id = @server_id;
+        ", conn);
+
+        cmd.Parameters.AddWithValue("server_id", ServerId);
+        cmd.Parameters.AddWithValue("user_id", UserId);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        if (!await reader.ReadAsync())
+        {
+            return 0;
+        }
+
+        var PermissionsNumber = reader.GetInt64(0);
+
+        return PermissionsNumber;
+    }
+
+    public async Task<bool> ChangeChannelIdWebhook (Guid ChannelId, Guid ServerId, int ChangerUserId, Guid WebhookId)
+    {
+        var PermissionsNumber = await GetPermissionNumber(ServerId, ChangerUserId);
+        var Perm = (Permissions) PermissionsNumber;
+        var CanMakeWebhooks = (Perm & Permissions.Administrator) != 0;
+
+        if (!CanMakeWebhooks)
+        {
+            return false;
+        }
+
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand(@"
+            UPDATE server_channels_webhooks SET channel_id = @channel_id WHERE id = @id;
+        ", conn);
+
+        cmd.Parameters.AddWithValue("id", WebhookId);
+        cmd.Parameters.AddWithValue("channel_id", ChannelId);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        if (!await reader.ReadAsync())
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    public async Task<bool> AddChannelWebhook (Guid ChannelId, Guid ServerId, int ChangerUserId)
+    {
+        var PermissionsNumber = await GetPermissionNumber(ServerId, ChangerUserId);
+        var Perm = (Permissions) PermissionsNumber;
+        var CanMakeWebhooks = (Perm & Permissions.Administrator) != 0;
+
+        if (!CanMakeWebhooks)
+        {
+            return false;
+        }
+
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand(@"
+            INSERT INTO server_channels_webhooks (creator_id, channel_id) 
+            VALUES (@ChangerUserId, @ServerId);
+        ", conn);
+
+        cmd.Parameters.AddWithValue("ChannelId", ChannelId);
+        cmd.Parameters.AddWithValue("ChangerUserId", ChangerUserId);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        if (!await reader.ReadAsync())
+        {
+            return false;
+        }
+
+        return true;
     }
 }

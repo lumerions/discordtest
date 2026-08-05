@@ -2,12 +2,12 @@ namespace Middleware.Csrf;
 
 public class CsrfMiddlewareResponse
 {
-    public bool success;
+    public bool success {get; set;}
 }
 
 public class CsrfMiddlewareResponseError : CsrfMiddlewareResponse
 {
-    public string message;
+    public string message {get; set;}
 }
 
 public class CsrfMiddleware

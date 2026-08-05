@@ -28,6 +28,15 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     expires_at TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS webhook_uploads (
+    id UUID PRIMARY KEY NOT NULL REFERENCES server_channels_webhooks(id) ON DELETE CASCADE,
+    file_name VARCHAR(255) NOT NULL,
+    file_size BIGINT NOT NULL,
+    mime_type VARCHAR(100),
+    storage_path TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS avatar_uploads (
     id UUID PRIMARY KEY NOT NULL,
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -125,6 +134,13 @@ CREATE TABLE IF NOT EXISTS server_channels (
     position INT NOT NULL DEFAULT 0,
     rules_channel BOOLEAN NOT NULL DEFAULT FALSE,
     channel_topic VARCHAR(100) DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS server_channels_webhooks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    creator_id INTEGER NOT NULL,
+    channel_id UUID NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS server_settings (

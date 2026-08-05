@@ -12,67 +12,94 @@ using System.Text;
 using System.Net.WebSockets;
 using System.Linq;
 using StackExchange.Redis;
-using System.Collections.Concurrent;
+using Controllers.ControllBase;
 
 namespace Internal.ServerCont;
 
-public record RevokeInviteDto (
-    [Required] Guid ServerId,
-    [Required] string InviteCode
-);
+public abstract record ServerIdBase
+{
+    [Required]
+    public required Guid ServerId {get; init;}
+}
 
-public record InviteDto (
-    [Required] Guid ServerId,
-    [Required] Guid ChannelId,
-    [Required] string ExpiresAt,
-    [Required] int MaxUses 
-);
+public abstract record ServerIdChannelIdBase : ServerIdBase
+{
+    [Required]
+    public required Guid ChannelId {get; init;}
+}
 
-public record NewChannel (
-    [Required] Guid ServerId,
-    [Required] string ChannelName,
-    [Required] string ChannelType,
-    [Required] string ChannelTopic,
-    [Required] int Position // frontend can determine this
-);
+public record RevokeInviteDto : ServerIdBase
+{
+    [Required]
+    public required string InviteCode {get; init;}
+}
 
-public record ChangeNickname (
-    [Required] Guid ServerId,
-    [Required] string NewNickname,
-    [Required] int UserId
-);
+public record InviteDto : ServerIdChannelIdBase
+{
+    [Required]
+    public required string ExpiresAt {get; init;}
+    public required int MaxUses {get; init;}
+}
 
-public record KickOrLeave (
-    [Required] Guid ServerId,
-    [Required] int UserId,
-    [Required] bool Kick
-);
+public record NewChannel : ServerIdBase
+{
+    [Required]
+    public required string ChannelName {get; init;}
+    public required string ChannelType {get; init;}
+    public required string ChannelTopic {get; init;}
+    public required int Position {get; init;}
+}
 
-public record CreateServerDto (
-    [Required] string ServerName
-);
+public record ChangeNickname : ServerIdBase
+{
+    [Required]
+    public required string NewNickname {get; init;}
+    public required int UserId {get; init;}
+}
 
-public record DeleteServerDto (
-    [Required] Guid ServerId
-);
+public record KickOrLeave : ServerIdBase
+{
+    [Required]
 
-public record JoinServerDto (
-    [Required] Guid ServerId,
-    [Required] string InviteCode
-);
+    public required bool Kick {get; init;}
+    public required int UserId {get; init;}
+}
 
-public record BanOrMuteDto (
-    [Required] Guid ServerId,
-    [Required] string BanUsername,
-    [Required] int BanId, 
-    [Required] DateTime ExpiresAt, 
-    [Required] string ModerationAction,
-    string? BanReason
-);
+public record CreateServerDto
+{
+    [Required]
+    public required string ServerName {get; init;}
+}
+
+public record DeleteServerDto : ServerIdBase {};
+
+public record JoinServerDto : ServerIdChannelIdBase
+{
+    [Required]
+    public required string InviteCode {get; init;}
+}
+
+public record BanOrMuteDto : ServerIdBase
+{
+    [Required]
+    public required string BanUsername {get; init;}
+    public required int BanId {get; init;}
+    public required DateTime ExpiresAt {get; init;}
+    public required string ModerationAction {get; init;}
+    public required string? BanReason {get; init;}
+}
+
+public record ChangeIdWebhookDto : ServerIdChannelIdBase
+{
+    [Required]
+    public required Guid WebhookId {get; init;}
+}
+
+public record CreateChannelWebhook : ServerIdChannelIdBase {};
 
 [ApiController]
 [Route("/api/internal/servers/")]
-public class ServersController : ControllerBase
+public class ServersController : BaseController
 {
     private readonly Server ServerHandler;
     private readonly IDatabase RedisDatabase;
@@ -185,8 +212,6 @@ public class ServersController : ControllerBase
     {
         var ServerId = request.ServerId;
         var InviteCode = request.InviteCode;
-        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
 
         if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
         if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
@@ -217,7 +242,6 @@ public class ServersController : ControllerBase
     [HttpPost("moderation-action")]
     public async Task<IActionResult> ModerationAction ([FromBody] BanOrMuteDto request)
     {
-        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
 
         var ServerId = request.ServerId;
@@ -286,7 +310,6 @@ public class ServersController : ControllerBase
     public async Task<IActionResult> DeleteServer ([FromBody] DeleteServerDto request)
     {
         var ServerId = request.ServerId;
-        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
         if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
 
@@ -304,8 +327,7 @@ public class ServersController : ControllerBase
     public async Task<IActionResult> CreateServer ([FromBody] CreateServerDto request)
     {
         var ServerName = request.ServerName;
-        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
-        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
         if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
         if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
 
@@ -325,8 +347,7 @@ public class ServersController : ControllerBase
         var KickMember = request.Kick;
         var KickUserId = request.UserId;
         var ServerId = request.ServerId;
-        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
-        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
         if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
         if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
 
@@ -365,8 +386,7 @@ public class ServersController : ControllerBase
         var NewNickname = request.NewNickname;
         var NewNicknameId = request.UserId;
         var ServerId = request.ServerId;
-        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
-        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
         if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
         if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
 
@@ -414,8 +434,7 @@ public class ServersController : ControllerBase
         var ChannelPosition = request.Position;
         var ServerId = request.ServerId;
         var ChannelTopic = request.ChannelTopic;
-        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
-        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
         if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
         if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
 
@@ -467,8 +486,6 @@ public class ServersController : ControllerBase
             return BadRequest("Invalid Max Uses.");
         }
 
-        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
-        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
         if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
 
@@ -502,8 +519,7 @@ public class ServersController : ControllerBase
     {
         var ServerId = request.ServerId;
         var InviteCode = request.InviteCode;
-        var UserName = User.FindFirst(ClaimTypes.Name)?.Value;
-        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
         if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
         if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
 
@@ -525,6 +541,45 @@ public class ServersController : ControllerBase
             }
             
             await ServerHandler.RevokeInvite(ServerId, InviteCode);
+        }
+        
+        return BadRequest("Error getting userid.");
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("change-channel-webhook-id")]
+    public async Task<IActionResult> ChangeChannelId ([FromBody] ChangeIdWebhookDto request)
+    {
+        var ServerId = request.ServerId;
+        var WebhookId = request.WebhookId;
+        var ChannelId = request.ChannelId;
+
+        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
+
+        if (int.TryParse(UserId, out var IdValue))
+        {
+            await ServerHandler.ChangeChannelIdWebhook(ChannelId, ServerId, IdValue, WebhookId);
+        }
+        
+        return BadRequest("Error getting userid.");
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("channel-webhook-create")]
+    public async Task<IActionResult> ChannelWebhook ([FromBody] CreateChannelWebhook request)
+    {
+        var ChannelId = request.ChannelId;
+        var ServerId = request.ServerId;
+
+        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
+
+        if (int.TryParse(UserId, out var IdValue))
+        {
+            await ServerHandler.AddChannelWebhook(ChannelId, ServerId, IdValue);
         }
         
         return BadRequest("Error getting userid.");

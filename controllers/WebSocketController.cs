@@ -15,6 +15,7 @@ using StackExchange.Redis;
 using Internal.MainController;
 using Internal.Shared;
 using Microsoft.AspNetCore.RateLimiting;
+using Controllers.ControllBase;
 
 namespace Internal.WebSocketController;
 
@@ -28,7 +29,7 @@ public class SocketMessage
 
 [ApiController]
 [Route("/ws/{controller}")]
-public class WebSocketController : ControllerBase
+public class WebSocketController : BaseController
 {
     private readonly SharedMethods.WebSocketSessionManager Manager;
     private readonly IDatabase RedisDatabase;
@@ -56,11 +57,8 @@ public class WebSocketController : ControllerBase
             return;
         }
 
-        var UserId = HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var Username = HttpContext.User.FindFirst(ClaimTypes.Name)?.Value;
-
         if (string.IsNullOrWhiteSpace(UserId)) return;
-        if (string.IsNullOrWhiteSpace(Username)) return;
+        if (string.IsNullOrWhiteSpace(UserName)) return;
 
         WebSocket websocket = await HttpContext.WebSockets.AcceptWebSocketAsync();
 
@@ -88,7 +86,7 @@ public class WebSocketController : ControllerBase
                         if (SocketJSONType == null) break;
 
                         var RedisKey = $"channels:{DiscordChannelId.ToString()}";
-                        var fullKey = DiscordChannelId.ToString() + ";" + Username.ToString() + ";" + UserId.ToString();
+                        var fullKey = DiscordChannelId.ToString() + ";" + UserName.ToString() + ";" + UserId.ToString();
                         switch (SocketJSONType)
                         {
                             case "Typing":

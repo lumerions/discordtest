@@ -16,6 +16,7 @@ using Internal.Database;
 using Internal.Authenication;
 using Internal.Accounts;
 using System.Security.Cryptography;
+using Controllers.ControllBase;
 
 public class IpApiResponse
 {
@@ -24,28 +25,47 @@ public class IpApiResponse
     public string city { get; set; }
 }
 
-public record ChangePasswordDto (
-    [Required] string CurrentPassword,
-    [Required] string NewPassword
-);
+public abstract record RegisterLoginBase
+{
+    [Required]
+    [EmailAddress]
+    public required string Email {get; init;}
+}
 
-public record RegisterDto (
-    [Required] [EmailAddress] string Email,
-    [Required] string Password,
-    [Required] string Username,
-    [Required] string Day,
-    [Required] string Month,
-    [Required] string Year
-);
+public abstract record AccountsBase
+{
+    [Required]
+    public required string Password {get; init;}
+}
 
-public record LoginDto (
-    [Required] string Email,
-    [Required] string Password
-);
+public record ChangePasswordDto 
+{
+    [Required]
+    public required string CurrentPassword {get; init;}
+    public required string NewPassword {get; init;}
+
+}
+
+public record RegisterDto : RegisterLoginBase
+{
+    [Required]
+    public required string Password {get; init;}
+    public required string Username {get; init;}
+    public required string Day {get; init;}
+    public required string Month {get; init;}
+    public required string Year {get; init;}
+
+}
+
+public record LoginDto : RegisterLoginBase
+{
+    [Required]
+    public required string Password {get; init;}
+}
 
 [ApiController]
 [Route("/api/internal/account/")]
-public class AccountController : ControllerBase
+public class AccountController : BaseController
 {
     private readonly DataHandler datahandler;
     private readonly IConfiguration configuration;
