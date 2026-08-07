@@ -64,7 +64,6 @@ public class MainController : BaseController
 
         ServerIdUsers.TryAdd(UserId.ToString(), 0);
 
-        // TODO
         return Ok(new
         {
             success = true

@@ -28,7 +28,9 @@ public class SharedMethods
         var TypeInfo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             {"Avatar", "avatar_uploads"},
-            {"RoleIcons", "role_icon_uploads"}
+            {"RoleIcons", "role_icon_uploads"},
+            {"Webhook", "webhook_uploads"},
+            {"Reaction", "reaction_uploads"}
         };
 
         return TypeInfo;

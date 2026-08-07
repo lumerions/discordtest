@@ -37,6 +37,13 @@ public class UsersController : BaseController
         {
             var TypeInfo = Shared.UploadsInfo();
             var UploadType = request.UploadType;
+            var RoleId = request.RoleId;
+
+            if (RoleId == null && UploadType == "RoleIcons")
+            {
+                return BadRequest("No roleid for uploading role icon.");
+            }
+
             if (!TypeInfo.TryGetValue(UploadType, out var TypeInfoValue))
             {
                 return BadRequest("Invalid upload type.");
@@ -61,10 +68,14 @@ public class UsersController : BaseController
             var StoragePath = $"{TypeInfoValue}/{NewAvatarImageName}";
             await using var stream = new FileStream(FullPath, FileMode.CreateNew);
             await file.CopyToAsync(stream);
-            string SQL = TypeInfoValue == "RoleIcons"
-                ? $"""
+            string SQL = "";
+
+            if (UploadType == "RoleIcons")
+            {
+                SQL = $"""
                     INSERT INTO {TypeInfoValue} (
                         id,
+                        role_id,
                         user_id,
                         file_name,
                         file_size,
@@ -73,24 +84,7 @@ public class UsersController : BaseController
                     )
                     VALUES (
                         @id,
-                        @user_id,
-                        @file_name,
-                        @file_size,
-                        @mime_type,
-                        @storage_path
-                    );
-                    """
-                : $"""
-                    INSERT INTO {TypeInfoValue} (
-                        id,
-                        user_id,
-                        file_name,
-                        file_size,
-                        mime_type,
-                        storage_path
-                    )
-                    VALUES (
-                        @id,
+                        @role_id,
                         @user_id,
                         @file_name,
                         @file_size,
@@ -99,27 +93,57 @@ public class UsersController : BaseController
                     );
                     """;
 
-            var Success = await DBHandler.ExecuteAsync($"""
-                INSERT INTO {TypeInfoValue} (
-                    id,
-                    user_id,
-                    file_name,
-                    file_size,
-                    mime_type,
-                    storage_path
-                )
-                VALUES (
-                    @id,
-                    @user_id,
-                    @file_name,
-                    @file_size,
-                    @mime_type,
-                    @storage_path
-                );
-            """, cmd => 
+            } else if (UploadType == "Webhook" || UploadType == "Reaction") {
+                SQL = $"""
+                    INSERT INTO {TypeInfoValue} (
+                        id,
+                        file_name,
+                        file_size,
+                        mime_type,
+                        storage_path
+                    )
+                    VALUES (
+                        @id,
+                        @file_name,
+                        @file_size,
+                        @mime_type,
+                        @storage_path
+                    );
+                    """;
+
+            } else if (UploadType == "Avatar")
+            {
+                SQL = $"""
+                    INSERT INTO {TypeInfoValue} (
+                        id,
+                        user_id,
+                        file_name,
+                        file_size,
+                        mime_type,
+                        storage_path
+                    )
+                    VALUES (
+                        @id,
+                        @user_id,
+                        @file_name,
+                        @file_size,
+                        @mime_type,
+                        @storage_path
+                    );
+                """;
+            }
+
+            var Success = await DBHandler.ExecuteAsync(SQL, cmd => 
             {
                 cmd.Parameters.AddWithValue("id", NewAvatarImageId);
-                cmd.Parameters.AddWithValue("user_id", UserId);
+                if (UploadType == "RoleIcons")
+                {
+                    cmd.Parameters.AddWithValue("role_id", RoleId!);
+                }
+                if (UploadType != "Webhook" && UploadType != "Reaction")
+                {
+                    cmd.Parameters.AddWithValue("user_id", UserId);
+                }
                 cmd.Parameters.AddWithValue("file_name", NewAvatarImageName);
                 cmd.Parameters.AddWithValue("file_size", file.Length);
                 cmd.Parameters.AddWithValue("mime_type", file.ContentType);                              

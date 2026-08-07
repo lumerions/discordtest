@@ -124,7 +124,10 @@ public class MessageHandler
         try
         {
             if (string.IsNullOrEmpty(PicturePath)) PicturePath = "";
-            if (isSystem == true) MessagerUserId = -500;
+
+            if (isSystem == true && MessagerUserId != 5) {
+                MessagerUserId = -500;
+            }
 
             await using var conn = await DBHandler.GetConnection();
             await using var cmd = new NpgsqlCommand(@"

@@ -803,4 +803,148 @@ public class Server
 
         return true;
     }
+
+    public async Task<bool> SendChannelWebhookMessage (Guid WebhookId, string WebhookMessage)
+    {
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand(@"
+            SELECT 
+                SCW.channel_id,
+                SC.server_id
+            FROM server_channels_webhooks AS SCW
+            JOIN server_channels AS SC
+                ON SCW.channel_id = SC.id
+            WHERE SCW.id = @id;
+        ", conn);
+
+        cmd.Parameters.AddWithValue("id", WebhookId);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        if (!await reader.ReadAsync())
+        {
+            return false;
+        }
+
+        var ChannelId = reader.GetGuid(0);
+        var ServerId = reader.GetGuid(1);
+
+        await MsgHandler.SendMessageInServer(WebhookMessage, 5, ChannelId, "", true, null);
+
+        return true;
+    }
+
+    public async Task<bool> ReactToMessage (bool PrivateMessage, Guid ServerId, Guid MessageId, Guid ReactionId, int ReacterId)
+    {
+        string TableName = "";
+
+        if (PrivateMessage) {
+            TableName = "private_message_reactions";
+        } else
+        {
+            TableName = "server_message_reactions";
+            var PermissionsNumber = await GetPermissionNumber(ServerId, ReacterId);
+            var Perm = (Permissions) PermissionsNumber;
+            var CanReact = (Perm & Permissions.AddReactions) != 0;
+
+            if (!CanReact)
+            {
+                return false;
+            }
+        }
+
+        await using var conn = await DBHandler.GetConnection();
+
+        try
+        {
+            return await DBHandler.ExecuteAsync($"""
+                INSERT INTO {TableName} (
+                    message_id,
+                    reaction_id,
+                    user_id
+                )
+                VALUES (
+                    @message_id,
+                    @reaction_id,
+                    @user_id
+                )
+                """, cmd =>
+                {
+                    cmd.Parameters.AddWithValue("message_id", MessageId);
+                    cmd.Parameters.AddWithValue("reaction_id", ReactionId);
+                    cmd.Parameters.AddWithValue("user_id", ReacterId);
+            }).ContinueWith(t => t.Result > 0);
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return false;
+        }
+    }
+
+    public async Task<bool> DeleteMessage (bool PrivateMessage, int DeleterId, Guid MessageId)
+    {
+        string TableName = "";
+
+        if (PrivateMessage) {
+            TableName = "private_messages";
+        } else
+        {
+            TableName = "server_messages";
+        }
+
+        await using var conn = await DBHandler.GetConnection();
+
+        try
+        {
+            await using var cmd = new NpgsqlCommand($"""
+                SELECT 
+                    SCW.channel_id,
+                    SC.server_id,
+                    SCW.sender_id
+                FROM {TableName} AS SCW
+                JOIN server_channels AS SC
+                    ON SCW.channel_id = SC.id
+                WHERE SCW.id = @id;
+            """, conn);
+
+            cmd.Parameters.AddWithValue("id", MessageId);
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+
+            if (!await reader.ReadAsync())
+            {
+                return false;
+            }
+
+            var ChannelId = reader.GetGuid(0);
+            var ServerId = reader.GetGuid(1);
+            var SenderId = reader.GetInt32(2);
+
+            await reader.DisposeAsync();
+
+            if (!PrivateMessage)
+            {
+                if (SenderId != DeleterId)
+                {
+                    var PermissionsNumber = await GetPermissionNumber(ServerId, DeleterId);
+                    var Perm = (Permissions) PermissionsNumber;
+                    var CanDeleteMessages = (Perm & Permissions.ManageMessages) != 0;
+
+                    if (!CanDeleteMessages)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return await DBHandler.ExecuteAsync($"""
+                DELETE FROM {TableName} WHERE id = @id;
+                """, cmd =>
+                {
+                    cmd.Parameters.AddWithValue("id", MessageId);
+            }).ContinueWith(t => t.Result > 0);
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return false;
+        }
+    }
 }

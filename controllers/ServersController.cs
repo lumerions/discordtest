@@ -95,6 +95,13 @@ public record ChangeIdWebhookDto : ServerIdChannelIdBase
     public required Guid WebhookId {get; init;}
 }
 
+public record SendWebhookMessageDto
+{
+    [Required]
+    public required string WebhookMessage {get; init;}
+    public required Guid WebhookId {get; init;}
+}
+
 public record CreateChannelWebhook : ServerIdChannelIdBase {};
 
 [ApiController]
@@ -122,6 +129,20 @@ public class ServersController : BaseController
         var Perm = (Permissions) PermissionNumber;
 
         return (Perm, true, PermissionInfo);
+    }
+
+    public bool GetIdValue (ref int IdVar)
+    {
+        if (string.IsNullOrWhiteSpace(UserId)) return false;
+        if (string.IsNullOrWhiteSpace(UserName)) return false;
+
+        if (int.TryParse(UserId, out var IdValue))
+        {
+            IdVar = IdValue;
+            return true;
+        }
+
+        return false;
     }
 
     public ServersController (SharedMethods.WebSocketSessionManager manager, RedisHandler redis_, Server ServerHandler_, SharedMethods.WebSocketChannelIdConnections  websocketconns)
@@ -212,29 +233,27 @@ public class ServersController : BaseController
     {
         var ServerId = request.ServerId;
         var InviteCode = request.InviteCode;
+        int Id = 0;
 
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
-        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
-
-        if (int.TryParse(UserId, out var UserIdInt))
+        if (!GetIdValue(ref Id))
         {
-            var JoinServerResult = await ServerHandler.JoinServer(ServerId, UserIdInt, UserName, InviteCode);
+            return Unauthorized();
+        }
 
-            if (!JoinServerResult.Contains("Successfully"))
-            {
-                return BadRequest(new
-                {
-                    message = JoinServerResult
-                });
-            }
+        var JoinServerResult = await ServerHandler.JoinServer(ServerId, Id, UserName, InviteCode);
 
-            return Ok(new
+        if (!JoinServerResult.Contains("Successfully"))
+        {
+            return BadRequest(new
             {
-                success = true
+                message = JoinServerResult
             });
         }
 
-        return BadRequest("Could not join server please try again later.");
+        return Ok(new
+        {
+            success = true
+        });
     }
 
     [Authorize]
@@ -242,66 +261,66 @@ public class ServersController : BaseController
     [HttpPost("moderation-action")]
     public async Task<IActionResult> ModerationAction ([FromBody] BanOrMuteDto request)
     {
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
-
         var ServerId = request.ServerId;
         var BanId = request.BanId;
         var BanUsername = request.BanUsername;
         var BanReason = request.BanReason;
         var ExpiresAt = request.ExpiresAt;
         var ModerationAction = request.ModerationAction;
+        int Id = 0;
 
         if (ModerationAction != "server_mutes" && ModerationAction != "server_bans")
         {
             return BadRequest("Invalid moderation action.");
         }
 
-        if (int.TryParse(UserId, out var UserIdInt)) {
-            if (BanReason == null) BanReason = "";
-
-            var PermissionResult = await GetPerm(ServerId, UserIdInt, true);
-            var Perm = PermissionResult.Perm;
-          
-            if (Perm == null) 
-            { 
-                return BadRequest();
-            }
-
-            var ChannelIds = PermissionResult.ChannelIds;
-
-            if (ModerationAction == "server_mutes")
-            {
-                var CanMute = (Perm & Permissions.TimeoutMembers) != 0;
-
-                if (!CanMute)
-                {
-                    return Unauthorized();
-                }
-
-                await ServerHandler.BanOrMuteUser(ServerId, BanId, UserIdInt, BanReason, ExpiresAt, ModerationAction);
-                await SetTypingStatus(ChannelIds, BanUsername, BanId, null);
-            }
-
-            if (ModerationAction == "server_bans")
-            {
-                var CanBan = (Perm & Permissions.BanMembers) != 0;
-
-                if (!CanBan)
-                {
-                    return Unauthorized();
-                }
-
-                await ServerHandler.BanOrMuteUser(ServerId, BanId, UserIdInt, BanReason, ExpiresAt, ModerationAction);
-                await SetTypingStatus(ChannelIds, BanUsername, BanId, true);
-            }
-            
-            return Ok(new
-            {
-                success = true
-            });
+        if (!GetIdValue(ref Id))
+        {
+            return Unauthorized();
         }
 
-        return BadRequest("Error getting userid.");
+        if (BanReason == null) BanReason = "";
+
+        var PermissionResult = await GetPerm(ServerId, Id, true);
+        var Perm = PermissionResult.Perm;
+        
+        if (Perm == null) 
+        { 
+            return BadRequest();
+        }
+
+        var ChannelIds = PermissionResult.ChannelIds;
+
+        if (ModerationAction == "server_mutes")
+        {
+            var CanMute = (Perm & Permissions.TimeoutMembers) != 0;
+
+            if (!CanMute)
+            {
+                return Unauthorized();
+            }
+
+            await ServerHandler.BanOrMuteUser(ServerId, BanId, Id, BanReason, ExpiresAt, ModerationAction);
+            await SetTypingStatus(ChannelIds, BanUsername, BanId, null);
+        }
+
+        if (ModerationAction == "server_bans")
+        {
+            var CanBan = (Perm & Permissions.BanMembers) != 0;
+
+            if (!CanBan)
+            {
+                return Unauthorized();
+            }
+
+            await ServerHandler.BanOrMuteUser(ServerId, BanId, Id, BanReason, ExpiresAt, ModerationAction);
+            await SetTypingStatus(ChannelIds, BanUsername, BanId, true);
+        }
+            
+        return Ok(new
+        {
+            success = true
+        });
     }
 
     [Authorize]
@@ -310,15 +329,19 @@ public class ServersController : BaseController
     public async Task<IActionResult> DeleteServer ([FromBody] DeleteServerDto request)
     {
         var ServerId = request.ServerId;
+        int Id = 0;
 
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
-
-        if (int.TryParse(UserId, out var IdValue))
+        if (!GetIdValue(ref Id))
         {
-            await ServerHandler.DeleteGuild(ServerId, IdValue);
+            return Unauthorized();
         }
+
+        await ServerHandler.DeleteGuild(ServerId, Id);
         
-        return BadRequest("Error getting userid.");
+        return Ok(new
+        {
+            success = true
+        });
     }
 
     [Authorize]
@@ -327,16 +350,19 @@ public class ServersController : BaseController
     public async Task<IActionResult> CreateServer ([FromBody] CreateServerDto request)
     {
         var ServerName = request.ServerName;
+        int Id = 0;
 
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
-        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
-
-        if (int.TryParse(UserId, out var IdValue))
+        if (!GetIdValue(ref Id))
         {
-            await ServerHandler.CreateNewServer(ServerName, IdValue, UserName);
+            return Unauthorized();
         }
+
+        await ServerHandler.CreateNewServer(ServerName, Id, UserName);
         
-        return BadRequest("Error getting userid.");
+        return Ok(new
+        {
+            success = true
+        });
     }
 
     [Authorize]
@@ -347,35 +373,38 @@ public class ServersController : BaseController
         var KickMember = request.Kick;
         var KickUserId = request.UserId;
         var ServerId = request.ServerId;
+        int Id = 0;
 
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
-        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
-
-        if (int.TryParse(UserId, out var IdValue))
+        if (!GetIdValue(ref Id))
         {
-            var PermissionInfo = await ServerHandler.GetChannelIdsByServerId(ServerId, IdValue, true);
-
-            if (KickMember)
-            {
-                if (PermissionInfo.ContainsKey("Permissions")) {
-                    return BadRequest();
-                }
-                
-                string PermissionString = PermissionInfo.GetValueOrDefault("Permissions");
-                long PermissionNumber = long.Parse(PermissionString);
-                var Perm = (Permissions) PermissionNumber;
-                var canKick = (Perm & Permissions.KickMembers) != 0;
-
-                if (!canKick)
-                {
-                    return Unauthorized();
-                }
-            }
-
-            await ServerHandler.KickUser(ServerId, KickUserId);
+            return Unauthorized();
         }
-        
-        return BadRequest("Error getting userid.");
+
+        var PermissionInfo = await ServerHandler.GetChannelIdsByServerId(ServerId, Id, true);
+
+        if (KickMember)
+        {
+            if (!PermissionInfo.ContainsKey("Permissions")) {
+                return BadRequest();
+            }
+            
+            string PermissionString = PermissionInfo.GetValueOrDefault("Permissions");
+            long PermissionNumber = long.Parse(PermissionString);
+            var Perm = (Permissions) PermissionNumber;
+            var canKick = (Perm & Permissions.KickMembers) != 0;
+
+            if (!canKick)
+            {
+                return Unauthorized();
+            }
+        }
+
+        await ServerHandler.KickUser(ServerId, KickUserId);
+    
+        return Ok(new
+        {
+            success = true
+        });
     }
 
     [Authorize]
@@ -386,42 +415,46 @@ public class ServersController : BaseController
         var NewNickname = request.NewNickname;
         var NewNicknameId = request.UserId;
         var ServerId = request.ServerId;
+        int Id = 0;
 
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
-        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
-
-        if (int.TryParse(UserId, out var IdValue))
+        if (!GetIdValue(ref Id))
         {
-            var PermissionResult = await GetPerm(ServerId, IdValue, true);
-            var Perm = PermissionResult.Perm;
-          
-            if (Perm == null) 
-            { 
-                return BadRequest();
-            }
+            return Unauthorized();
+        }
 
-            if (NewNicknameId == IdValue)
-            {
-                var CanChangePersonalNickname = (Perm & Permissions.ChangeNickname) != 0;
-
-                if (!CanChangePersonalNickname)
-                {
-                    return Unauthorized();
-                }
-            } else
-            {
-                var CanManageNicknames = (Perm & Permissions.ManageNicknames) != 0;
-
-                if (!CanManageNicknames)
-                {
-                    return Unauthorized();
-                }
-            }
-
-            await ServerHandler.ChangeServerNickname(ServerId, NewNicknameId, NewNickname);
-        } // websocket support needs to be added for all of this but ill do it later
+        var PermissionResult = await GetPerm(ServerId, Id, true);
+        var Perm = PermissionResult.Perm;
         
-        return BadRequest("Error getting userid.");
+        if (Perm == null) 
+        { 
+            return BadRequest();
+        }
+
+        if (NewNicknameId == Id)
+        {
+            var CanChangePersonalNickname = (Perm & Permissions.ChangeNickname) != 0;
+
+            if (!CanChangePersonalNickname)
+            {
+                return Unauthorized();
+            }
+        } else
+        {
+            var CanManageNicknames = (Perm & Permissions.ManageNicknames) != 0;
+
+            if (!CanManageNicknames)
+            {
+                return Unauthorized();
+            }
+        }
+
+        await ServerHandler.ChangeServerNickname(ServerId, NewNicknameId, NewNickname);
+        // websocket support needs to be added for all of this but ill do it later
+        
+        return Ok(new
+        {
+            success = true
+        });
     }
 
     [Authorize]
@@ -434,36 +467,40 @@ public class ServersController : BaseController
         var ChannelPosition = request.Position;
         var ServerId = request.ServerId;
         var ChannelTopic = request.ChannelTopic;
+        int Id = 0;
 
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
-        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
+        if (!GetIdValue(ref Id))
+        {
+            return Unauthorized();
+        }
 
         if (ChannelType != "text" && ChannelType != "voice" && ChannelType != "category") 
         {
             return BadRequest("Invalid channel type.");
         }
 
-        if (int.TryParse(UserId, out var IdValue))
-        {
-            var PermissionResult = await GetPerm(ServerId, IdValue, true);
-            var Perm = PermissionResult.Perm;
-          
-            if (Perm == null) 
-            { 
-                return BadRequest();
-            }
-
-            var CanManageChannels = (Perm & Permissions.ManageChannels) != 0;
-
-            if (!CanManageChannels)
-            {
-                return Unauthorized();
-            }
-
-            await ServerHandler.CreateServerChannel(ServerId, ChannelType, ChannelPosition, ChannelName, ChannelTopic);
-        } // websocket support needs to be added for all of this but ill do it later
+        var PermissionResult = await GetPerm(ServerId, Id, true);
+        var Perm = PermissionResult.Perm;
         
-        return BadRequest("Error getting userid.");
+        if (Perm == null) 
+        { 
+            return BadRequest();
+        }
+
+        var CanManageChannels = (Perm & Permissions.ManageChannels) != 0;
+
+        if (!CanManageChannels)
+        {
+            return Unauthorized();
+        }
+
+        await ServerHandler.CreateServerChannel(ServerId, ChannelType, ChannelPosition, ChannelName, ChannelTopic);
+        // websocket support needs to be added for all of this but ill do it later
+    
+        return Ok(new
+        {
+            success = true
+        });
     }
 
     [Authorize]
@@ -475,6 +512,7 @@ public class ServersController : BaseController
         var ServerId = request.ServerId;
         var MaxUses = request.MaxUses;
         var Expiration = request.ExpiresAt;
+        int Id = 0;
 
         if (Expiration != "30d" && Expiration != "Never" && Expiration != "7d" && Expiration != "1d" && Expiration != "12h" && Expiration != "6h" && Expiration != "1h" && Expiration != "30m")
         {
@@ -486,8 +524,10 @@ public class ServersController : BaseController
             return BadRequest("Invalid Max Uses.");
         }
 
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
-        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
+        if (!GetIdValue(ref Id))
+        {
+            return Unauthorized();
+        }
 
         if (int.TryParse(UserId, out var IdValue))
         {
@@ -509,7 +549,10 @@ public class ServersController : BaseController
             await ServerHandler.CreateNewServerInvite(ServerId, IdValue, MaxUses, ChannelId, Expiration);
         }
         
-        return BadRequest("Error getting userid.");
+        return Ok(new
+        {
+            success = true
+        });
     }
 
     [Authorize]
@@ -519,31 +562,34 @@ public class ServersController : BaseController
     {
         var ServerId = request.ServerId;
         var InviteCode = request.InviteCode;
+        int Id = 0;
 
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
-        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
-
-        if (int.TryParse(UserId, out var IdValue))
+        if (!GetIdValue(ref Id))
         {
-            var PermissionResult = await GetPerm(ServerId, IdValue, true);
-            var Perm = PermissionResult.Perm;
-          
-            if (Perm == null) 
-            { 
-                return BadRequest();
-            }
+            return Unauthorized();
+        }
 
-            var CanRevokeInvites = (Perm & Permissions.Administrator) != 0;
+        var PermissionResult = await GetPerm(ServerId, Id, true);
+        var Perm = PermissionResult.Perm;
+        
+        if (Perm == null) 
+        { 
+            return BadRequest();
+        }
 
-            if (!CanRevokeInvites)
-            {
-                return Unauthorized();
-            }
-            
-            await ServerHandler.RevokeInvite(ServerId, InviteCode);
+        var CanRevokeInvites = (Perm & Permissions.Administrator) != 0;
+
+        if (!CanRevokeInvites)
+        {
+            return Unauthorized();
         }
         
-        return BadRequest("Error getting userid.");
+        await ServerHandler.RevokeInvite(ServerId, InviteCode);
+    
+        return Ok(new
+        {
+            success = true
+        });
     }
 
     [Authorize]
@@ -554,16 +600,19 @@ public class ServersController : BaseController
         var ServerId = request.ServerId;
         var WebhookId = request.WebhookId;
         var ChannelId = request.ChannelId;
+        int Id = 0;
 
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
-        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
-
-        if (int.TryParse(UserId, out var IdValue))
+        if (!GetIdValue(ref Id))
         {
-            await ServerHandler.ChangeChannelIdWebhook(ChannelId, ServerId, IdValue, WebhookId);
+            return Unauthorized();
         }
+            
+        await ServerHandler.ChangeChannelIdWebhook(ChannelId, ServerId, Id, WebhookId);
         
-        return BadRequest("Error getting userid.");
+        return Ok(new
+        {
+            success = true
+        });
     }
 
     [Authorize]
@@ -573,15 +622,40 @@ public class ServersController : BaseController
     {
         var ChannelId = request.ChannelId;
         var ServerId = request.ServerId;
+        int Id = 0;
 
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
-        if (string.IsNullOrWhiteSpace(UserName)) return Unauthorized();
-
-        if (int.TryParse(UserId, out var IdValue))
+        if (!GetIdValue(ref Id))
         {
-            await ServerHandler.AddChannelWebhook(ChannelId, ServerId, IdValue);
+            return Unauthorized();
         }
+
+        await ServerHandler.AddChannelWebhook(ChannelId, ServerId, Id);
         
-        return BadRequest("Error getting userid.");
+        return Ok(new
+        {
+            success = true
+        });
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("send-webhook-message")]
+    public async Task<IActionResult> WebhookMessage ([FromBody] SendWebhookMessageDto request)
+    {
+        var WebhookId = request.WebhookId;
+        var WebhookMessage = request.WebhookMessage;
+        int Id = 0;
+
+        if (!GetIdValue(ref Id))
+        {
+            return Unauthorized();
+        }
+
+        await ServerHandler.SendChannelWebhookMessage(WebhookId, WebhookMessage);
+
+        return Ok(new
+        {
+            success = true
+        });
     }
 }

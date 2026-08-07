@@ -17,6 +17,8 @@ using Internal.Authenication;
 using Internal.Accounts;
 using System.Security.Cryptography;
 using Controllers.ControllBase;
+using System.Text.RegularExpressions;
+using Internal.ServerCont;
 
 public class IpApiResponse
 {
@@ -67,6 +69,7 @@ public record LoginDto : RegisterLoginBase
 [Route("/api/internal/account/")]
 public class AccountController : BaseController
 {
+    private readonly ServersController ServersContr;
     private readonly DataHandler datahandler;
     private readonly IConfiguration configuration;
     private readonly DatabaseHandler DBHandler;
@@ -81,6 +84,11 @@ public class AccountController : BaseController
         Authenication = Authenication_;
         HttpClientfactory = HttpClientfactory_;
         Accounts = Accounts_;
+    }
+
+    bool ValidUsername (string Username)
+    {
+        return Regex.IsMatch(Username, "^[a-zA-Z0-9_]{3,20}$");
     }
 
     public async Task<string> GetLocationString (string IPAddress) 
@@ -118,7 +126,7 @@ public class AccountController : BaseController
     {
         var UserIPAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
 
-        if (string.IsNullOrEmpty(UserIPAddress)) UserIPAddress = "8.8.8.8";
+        if (string.IsNullOrEmpty(UserIPAddress)) UserIPAddress = "Unknown";
 
         var UserAgent = HttpContext.Request.Headers["User-Agent"].ToString();
         var parser = Parser.GetDefault();
@@ -126,6 +134,42 @@ public class AccountController : BaseController
         var OS = clientInfo.OS.Family;
         var Browser = clientInfo.UA.Family;
         return (OS, Browser, UserIPAddress);
+    }
+
+    public string ValidateRequest (string Password, string Email, string? Username, bool? UsernameCheck)
+    {
+        var SecretKey = configuration["Main:HMacSha256Key"];
+        var EncryptKey = configuration["Main:EncryptionKey"];
+
+        if (string.IsNullOrEmpty(SecretKey))
+        {
+            return "Unexpected Error, please try again later.";
+        }
+
+        if (string.IsNullOrEmpty(EncryptKey))
+        {
+            return "Unexpected Error, please try again later.";
+        }
+
+        if (Password.Length < 8 || Password.Length > 128)
+        {
+            return "Invalid password length must be > 8 or < 128.";
+        }
+
+        if (Email.Length > 320) 
+        {
+            return "Email address is too long.";
+        }
+
+        if (UsernameCheck == true)
+        {
+            if (!ValidUsername(Username!))
+            {
+                return "Invalid username.";
+            }
+        }
+
+        return "";
     }
 
     [EnableRateLimiting("api")]
@@ -136,28 +180,14 @@ public class AccountController : BaseController
         var Password = request.Password;
         var SecretKey = configuration["Main:HMacSha256Key"];
         var EncryptKey = configuration["Main:EncryptionKey"];
+        var ValidationResult = ValidateRequest(Password, Email, null, null);
 
-        if (string.IsNullOrEmpty(SecretKey))
+        if (ValidationResult.Length > 0)
         {
-            return BadRequest("SecretHmac Key missing.");
+            return BadRequest(ValidationResult);
         }
 
-        if (string.IsNullOrEmpty(EncryptKey))
-        {
-            return BadRequest("EncryptKey Key missing.");
-        }
-
-        if (Password.Length < 8 || Password.Length > 128)
-        {
-            return BadRequest("Invalid password length must be > 8 or < 128.");
-        }
-
-        if (Email.Length > 320) 
-        {
-            return BadRequest("Email address is too long.");
-        }
-
-        byte[] SecretKeyBytes = Convert.FromBase64String(SecretKey);
+        byte[] SecretKeyBytes = Convert.FromBase64String(SecretKey!);
         var EmailHmacSha256 = datahandler.HmacSha256(Email, SecretKeyBytes);
 
         await using var conn = await DBHandler.GetConnection();
@@ -188,7 +218,7 @@ public class AccountController : BaseController
             return Unauthorized("Invalid username or password.");
         }
 
-        var EncryptKeyBytes = Convert.FromBase64String(EncryptKey);
+        var EncryptKeyBytes = Convert.FromBase64String(EncryptKey!);
         var UserEmail = datahandler.Decrypt(ciphertext, nonce, tag, EncryptKeyBytes);
         var Token = Authenication.SetJWTValue(configuration, UserId, UserEmail, Username);
         var UserInfo = GetUserInfo();
@@ -238,32 +268,28 @@ public class AccountController : BaseController
         var YearBorn = request.Year;
         var SecretKey = configuration["Main:HMacSha256Key"];
         var EncryptKey = configuration["Main:EncryptionKey"];
+        var ValidationResult = ValidateRequest(Password, Email, Username, true);
 
-        if (string.IsNullOrEmpty(SecretKey))
+        if (ValidationResult.Length > 0)
         {
-            return BadRequest("SecretHmac Key missing.");
+            return BadRequest(ValidationResult);
         }
 
-        if (string.IsNullOrEmpty(EncryptKey))
+        if (!int.TryParse(DayBorn, out var DayBornInt) || !int.TryParse(MonthBorn, out var MonthBornInt) || !int.TryParse(YearBorn, out var YearBornInt))
         {
-            return BadRequest("EncryptKey Key missing.");
+            return BadRequest("Invalid dob, must be atleast 13 years old.");
         }
 
-        if (Password.Length < 8 || Password.Length > 128)
+        if (DayBornInt > 31 || MonthBornInt > 12 || YearBornInt > 2013)
         {
-            return BadRequest("Invalid password length must be > 8 or < 128.");
+            return BadRequest("Invalid dob, must be atleast 13 years old.");
         }
 
-        if (Email.Length > 320) 
-        {
-            return BadRequest("Email address is too long.");
-        }
-
-        var DOBString = $"{DayBorn}/{MonthBorn}/{YearBorn}";
-        byte[] SecretKeyBytes = Convert.FromBase64String(SecretKey);
+        var DOBString = $"{DayBornInt}/{MonthBornInt}/{YearBornInt}";
+        byte[] SecretKeyBytes = Convert.FromBase64String(SecretKey!);
         var EmailHmacSha256 = datahandler.HmacSha256(Email, SecretKeyBytes);
         var PasswordHash = datahandler.ArgonHash(Password);
-        var EncryptKeyBytes = Convert.FromBase64String(EncryptKey);
+        var EncryptKeyBytes = Convert.FromBase64String(EncryptKey!);
         var EncryptionResult = datahandler.Encrypt(Email, EncryptKeyBytes);
         var nonce = EncryptionResult.nonce;
         var ciphertext = EncryptionResult.ciphertext;
@@ -346,15 +372,19 @@ public class AccountController : BaseController
         });
     }
 
+    [Authorize]
     [EnableRateLimiting("api")]
     [HttpPost("changepassword")]
     public async Task<IActionResult> ChangePassword ([FromBody] ChangePasswordDto request)
     {
         var CurrentPassword = request.CurrentPassword;
         var NewPassword = request.NewPassword;
-        var UserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        int Id = 0;
 
-        if (string.IsNullOrWhiteSpace(UserId)) return Unauthorized();
+        if (!ServersContr.GetIdValue(ref Id))
+        {
+            return Unauthorized();
+        }
 
         if (NewPassword.Length < 8 || NewPassword.Length > 128)
         {
@@ -364,7 +394,7 @@ public class AccountController : BaseController
         await using var conn = await DBHandler.GetConnection();
         await using var cmd = new NpgsqlCommand("SELECT password_hash FROM users WHERE id = @id;", conn);
 
-        cmd.Parameters.AddWithValue("id", UserId);
+        cmd.Parameters.AddWithValue("id", Id);
 
         await using var reader = await cmd.ExecuteReaderAsync();
 
@@ -393,7 +423,8 @@ public class AccountController : BaseController
             WHERE id = @id
             RETURNING 1;
         ", conn);
-        UpdatePassword.Parameters.AddWithValue("id", UserId);
+
+        UpdatePassword.Parameters.AddWithValue("id", Id);
         UpdatePassword.Parameters.AddWithValue("password_hash", NewPasswordHash);
 
         var UpdateResult = await UpdatePassword.ExecuteScalarAsync();

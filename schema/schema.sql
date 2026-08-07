@@ -192,6 +192,33 @@ CREATE TABLE IF NOT EXISTS private_messages (
     picture_path TEXT
 );
 
+CREATE TABLE IF NOT EXISTS reaction_uploads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    file_name VARCHAR(255) NOT NULL,
+    file_size BIGINT NOT NULL,
+    mime_type VARCHAR(100),
+    storage_path TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS private_message_reactions (
+    message_id UUID NOT NULL REFERENCES private_messages(id) ON DELETE CASCADE,
+    reaction_id UUID NOT NULL REFERENCES reaction_uploads(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+
+    PRIMARY KEY (message_id, reaction_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS server_message_reactions (
+    message_id UUID NOT NULL REFERENCES server_messages(id) ON DELETE CASCADE,
+    reaction_id UUID NOT NULL REFERENCES reaction_uploads(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+
+    PRIMARY KEY (message_id, reaction_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS server_message_mentions (
     message_id UUID NOT NULL REFERENCES server_messages(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
