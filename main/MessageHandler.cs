@@ -138,11 +138,50 @@ public class MessageHandler
                         channel_id,
                         picture_path
                     )
-                    VALUES (
+                    SELECT
                         @sender_id,
                         @message_content,
                         @channel_id,
                         @picture_path
+                    FROM server_automod sa
+                    WHERE sa.server_id = @server_id
+                    AND (
+                        EXISTS (
+                            SELECT 1
+                            FROM server_roles sr
+                            WHERE sr.server_id = sa.server_id
+                            AND sr.user_id = @sender_id
+                            AND sa.automod_channels_role_ids_bypass
+                                -> @channel_id::text
+                                ? sr.id::text
+                        )
+
+                        OR
+
+                        sa.block_custom_words = false
+
+                        OR
+
+                        NOT EXISTS (
+                            SELECT 1
+                            FROM unnest(
+                                string_to_array(
+                                    COALESCE(sa.custom_words_list, ''),
+                                    ','
+                                )
+                            ) AS blocked_word
+                            WHERE trim(blocked_word) <> ''
+                            AND @message_content ~* (
+                                '\m' ||
+                                regexp_replace(
+                                    trim(blocked_word),
+                                    '([\\.^$|()\\[\]{}*+?])',
+                                    '\\\1',
+                                    'g'
+                                ) ||
+                                '\M'
+                            )
+                        )
                     )
                     RETURNING id, channel_id, sender_id
                 )
@@ -150,21 +189,26 @@ public class MessageHandler
                     inserted.id,
                     COALESCE(BIT_OR(sr.permissions), 0) AS permissions,
                     sc.server_id,
-                    ARRAY_AGG(DISTINCT sc2.id ORDER BY sc2.position, sc2.id) AS channel_ids
+                    ARRAY_AGG(
+                        DISTINCT sc2.id
+                        ORDER BY sc2.position, sc2.id
+                    ) AS channel_ids
                 FROM inserted
                 JOIN server_channels sc
                     ON sc.id = inserted.channel_id
                 LEFT JOIN server_roles sr
                     ON sr.server_id = sc.server_id
-                AND sr.user_id = inserted.sender_id
+                    AND sr.user_id = inserted.sender_id
                 JOIN server_channels sc2
                     ON sc2.server_id = sc.server_id
                 GROUP BY inserted.id, sc.server_id;
             ", conn, transaction);
+
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
             cmd.Parameters.AddWithValue("message_content", NewMessage);
             cmd.Parameters.AddWithValue("channel_id", ChannelId);
             cmd.Parameters.AddWithValue("picture_path", PicturePath);
+
             await using var reader = await cmd.ExecuteReaderAsync();
 
             if (!await reader.ReadAsync())

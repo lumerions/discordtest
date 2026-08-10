@@ -149,6 +149,16 @@ CREATE TABLE IF NOT EXISTS server_settings (
     systems_channel UUID REFERENCES server_channels(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS server_automod (
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    block_custom_words BOOLEAN NOT NULL DEFAULT FALSE,
+    custom_words_list TEXT DEFAULT '',
+    custom_phrases_words_allowed TEXT DEFAULT '',
+    automod_word_violation_response SMALLINT NOT NULL DEFAULT 0, -- 0 = Block Message 1 = Send Alert 2 = Timeout Member
+    automod_custom_words_rule_name VARCHAR(200) DEFAULT 'Block Custom Words'
+    automod_channels_role_ids_bypass JSONB NOT NULL DEFAULT '{}'
+)
+
 CREATE TABLE IF NOT EXISTS server_bans (
     id BIGSERIAL PRIMARY KEY,
     server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,

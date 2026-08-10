@@ -6,6 +6,7 @@ using Internal.Roles;
 using Internal.Shared;
 using Internal.Database;
 using Npgsql;
+using System.Text.Json;
 
 namespace Internal.Servers;
 
@@ -112,6 +113,14 @@ public class Server
                 ),
                 new_server_setting AS (
                     INSERT INTO server_settings (server_id, systems_channel)
+                    SELECT
+                        server_id,
+                        id
+                    FROM new_channels
+                    WHERE name = 'general'
+                )
+                new_server_automod AS (
+                    INSERT INTO server_automod (server_id)
                     SELECT
                         server_id,
                         id
@@ -941,6 +950,102 @@ public class Server
                 """, cmd =>
                 {
                     cmd.Parameters.AddWithValue("id", MessageId);
+            }).ContinueWith(t => t.Result > 0);
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return false;
+        }
+    }
+
+    public async Task<bool> AutoModCustomWordChanges (Guid ServerId, int ChangerId, bool block_custom_words, string custom_words_list, string custom_phrases_words_allowed, int automod_word_violation_response, string automod_custom_words_rule_name, List<string> automod_channels_role_ids_bypass)
+    {
+        var AutomodChannelRoleIdsBypass = automod_channels_role_ids_bypass.ToArray();
+        var AutomodChannelRoleIdsBypassJson = JsonSerializer.Serialize(AutomodChannelRoleIdsBypass);
+
+        try
+        {
+            var PermissionsNumber = await GetPermissionNumber(ServerId, ChangerId);
+            var Perm = (Permissions) PermissionsNumber;
+            var CanManageServer = (Perm & Permissions.ManageServer) != 0;
+            var Administrator = (Perm & Permissions.Administrator) != 0;
+
+            if (!Administrator && !CanManageServer)
+            {
+                return false;
+            }
+        
+            return await DBHandler.ExecuteAsync($"""
+                UPDATE server_automod
+                SET 
+                    automod_custom_words_rule_name = @automod_custom_words_rule_name
+                    automod_word_violation_response = @automod_word_violation_response
+                    block_custom_words = @block_custom_words
+                    custom_phrases_words_allowed = @custom_phrases_words_allowed
+                    custom_words_list = @custom_words_list
+                    automod_channels_role_ids_bypass = @bypass::jsonb
+                WHERE server_id = @server_id
+
+                """, cmd =>
+                {
+                    cmd.Parameters.AddWithValue("automod_custom_words_rule_name", automod_custom_words_rule_name);
+                    cmd.Parameters.AddWithValue("automod_word_violation_response", automod_word_violation_response);
+                    cmd.Parameters.AddWithValue("custom_words_list", custom_words_list);
+                    cmd.Parameters.AddWithValue("custom_phrases_words_allowed", custom_phrases_words_allowed);
+                    cmd.Parameters.AddWithValue("block_custom_words", block_custom_words);
+                    cmd.Parameters.AddWithValue("server_id", ServerId);
+                    cmd.Parameters.AddWithValue("bypass", AutomodChannelRoleIdsBypassJson);
+            }).ContinueWith(t => t.Result > 0);
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return false;
+        }
+    }
+
+    public async Task<bool> UpdateChannelInfo (string Column, string Value, Guid ServerId)
+    {
+        object DBValue = null;
+        var AllowedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "rules_channel",
+            "channel_topic",
+            "position",
+            "type",
+            "name",
+        };
+
+        if (!AllowedColumns.Contains(Column))
+        {
+            return false;
+        }
+
+        if (int.TryParse(Value, out var IntDBValue))
+        {
+            DBValue = IntDBValue;
+        }
+
+        if (bool.TryParse(Value, out var BoolDBValue))
+        {
+            DBValue = BoolDBValue;
+        }
+
+        await using var conn = await DBHandler.GetConnection();
+
+        try
+        {
+            return await DBHandler.ExecuteAsync($"""
+                UPDATE server_channels
+                SET {Column} = @value 
+                WHERE server_id = @server_id;
+                """, cmd =>
+                {
+                    if (DBValue != null)
+                    {
+                        cmd.Parameters.AddWithValue("value", DBValue);
+                    } else {
+                        cmd.Parameters.AddWithValue("value", Value);
+                    } 
+                    
+                    cmd.Parameters.AddWithValue("server_id", ServerId);
             }).ContinueWith(t => t.Result > 0);
         } catch (Exception error) {
             Console.WriteLine(error);
