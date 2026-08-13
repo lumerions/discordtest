@@ -119,15 +119,19 @@ public class MessageHandler
         }
     }
 
-    public async Task<bool> SendMessageInServer(string NewMessage, int MessagerUserId, Guid ChannelId, string PicturePath, bool? isSystem, NpgsqlTransaction? transaction)
+    public async Task<bool> SendMessageInServer(string NewMessage, int MessagerUserId, Guid ChannelId, string PicturePath, bool? isSystem, NpgsqlTransaction? transaction, string MentionUserString)
     {
         try
         {
+            var MentionedMember = false;
+
             if (string.IsNullOrEmpty(PicturePath)) PicturePath = "";
 
             if (isSystem == true && MessagerUserId != 5) {
                 MessagerUserId = -500;
             }
+
+            if (MentionUserString.StartsWith("@")) MentionedMember = true; // @5345393494395934
 
             await using var conn = await DBHandler.GetConnection();
             await using var cmd = new NpgsqlCommand(@"
@@ -155,14 +159,8 @@ public class MessageHandler
                                 -> @channel_id::text
                                 ? sr.id::text
                         )
-
-                        OR
-
-                        sa.block_custom_words = false
-
-                        OR
-
-                        NOT EXISTS (
+                        OR sa.block_custom_words = false
+                        OR NOT EXISTS (
                             SELECT 1
                             FROM unnest(
                                 string_to_array(
@@ -184,7 +182,20 @@ public class MessageHandler
                         )
                     )
                     RETURNING id, channel_id, sender_id
+                ),
+
+                mention_insert AS (
+                    INSERT INTO server_message_mentions (
+                        message_id,
+                        user_id
+                    )
+                    SELECT
+                        inserted.id,
+                        @mentioned_id
+                    FROM inserted
+                    WHERE @mentioned_id <> 1
                 )
+
                 SELECT
                     inserted.id,
                     COALESCE(BIT_OR(sr.permissions), 0) AS permissions,
@@ -208,6 +219,15 @@ public class MessageHandler
             cmd.Parameters.AddWithValue("message_content", NewMessage);
             cmd.Parameters.AddWithValue("channel_id", ChannelId);
             cmd.Parameters.AddWithValue("picture_path", PicturePath);
+
+            if (MentionedMember)
+            {
+                var MentionedId = MentionUserString.Substring(1, MentionUserString.Length);
+                cmd.Parameters.AddWithValue("mentioned_id", MentionedId);
+            } else
+            {
+                cmd.Parameters.AddWithValue("mentioned_id", 1);
+            }
 
             await using var reader = await cmd.ExecuteReaderAsync();
 

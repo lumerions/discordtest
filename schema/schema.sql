@@ -256,6 +256,20 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS connections (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    url VARCHAR(255) NOT NULL,
+    connection_type VARCHAR(50) DEFAULT 'none',
+    keyy VARCHAR(255)  NOT NULL,
+    refresh_token VARCHAR(255)  NOT NULL,
+    access_token VARCHAR(255) NOT NULL,
+    expires_at BIGINT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_server_roles_scroll ON server_roles (server_id, user_id, position DESC, id);
 CREATE INDEX IF NOT EXISTS idx_server_members_user ON server_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_server_members_server ON server_members(server_id);

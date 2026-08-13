@@ -12,12 +12,51 @@ using System.Collections.Concurrent;
 using Internal.Main;
 using Microsoft.AspNetCore.RateLimiting;
 using Controllers.ControllBase;
+using System.Net.Http.Headers;
+using System.Text.Json.Serialization;
 
 namespace Internal.MainController;
 
 public class TypingRequest
 {
     public int DiscordChannelId {get; set;}
+}
+
+public class YoutubeChannelResponse
+{
+    [JsonPropertyName("items")]
+    public List<YoutubeChannel> Items { get; set; } = [];
+}
+
+public class YoutubeChannel
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("snippet")]
+    public YoutubeChannelSnippet Snippet { get; set; } = new();
+}
+
+public class YoutubeChannelSnippet
+{
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = "";
+
+    [JsonPropertyName("customUrl")]
+    public string? CustomUrl { get; set; }
+}
+
+public class YoutubeCallbackResponse
+{
+    [JsonPropertyName("access_token")]
+    public string AccessToken  {get; set;}
+    [JsonPropertyName("expires_in")]
+    public int ExpiresIn { get; set; }
+    [JsonPropertyName("refresh_token")]
+    public string? RefreshToken { get; set; }
 }
 
 [ApiController]
@@ -29,19 +68,26 @@ public class MainController : BaseController
     private readonly SharedMethods.ServerIdUserIdConnections ServerIdIds;
 
     private readonly SharedMethods.WebSocketChannelIdConnections WebSocketChannelIds;
+    private readonly IHttpClientFactory factory;
+    private readonly IConfiguration config;
 
-    public MainController(RedisHandler redis_, SharedMethods.WebSocketChannelIdConnections WebSocketChannelIds_, SharedMethods.ServerIdUserIdConnections ServerIdIds_)
+    private readonly MainHandler mainhandler;
+
+    public MainController(MainHandler mainhandler_, IConfiguration config_, IHttpClientFactory factory_, RedisHandler redis_, SharedMethods.WebSocketChannelIdConnections WebSocketChannelIds_, SharedMethods.ServerIdUserIdConnections ServerIdIds_)
     {
         Redis = redis_;
         RedisDatabase = redis_.GetRedisDatabase();
         WebSocketChannelIds = WebSocketChannelIds_;
         ServerIdIds = ServerIdIds_;
+        factory = factory_;
+        config = config_;
+        mainhandler = mainhandler_;
     }
 
     [Authorize]
     [EnableRateLimiting("api")]
     [HttpPost("GetTypingUsers")]
-    public async Task<List<string>> GetTypingUsers([FromBody] TypingRequest request)
+    public async Task<List<string>> GetTypingUsers ([FromBody] TypingRequest request)
     {
         var TypingUsers = (await RedisDatabase.SetMembersAsync($"channel:{request.DiscordChannelId}")).Take(5).Select(x => (string) x).ToList();
         return TypingUsers;
@@ -50,7 +96,7 @@ public class MainController : BaseController
     [Authorize]
     [EnableRateLimiting("api")]
     [HttpPost("ChannelInfo")]
-    public async Task<IActionResult> ChannelInfo([FromBody] TypingRequest request)
+    public async Task<IActionResult> ChannelInfo ([FromBody] TypingRequest request)
     {
         var channelId = request.DiscordChannelId.ToString();
 
@@ -68,5 +114,101 @@ public class MainController : BaseController
         {
             success = true
         });
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpGet("oauth/youtube/callback")]
+    public async Task<IActionResult> YoutubeCallback ([FromQuery] string? code, [FromQuery] string? state, [FromQuery] string? error)
+    {
+        if (string.IsNullOrEmpty(code))
+        {
+            return BadRequest("Invalid or expired code.");
+        }
+        if (string.IsNullOrEmpty(state))
+        {
+            return BadRequest("Invalid or expired state.");
+        }
+        if (!string.IsNullOrEmpty(error))
+        {
+            return BadRequest("Error with callback");
+        }
+
+        var YoutubeClientId = config["Main:YTCI"];
+        var YoutubeClientSecret = config["Main:YTCS"];
+        var YoutubeRedirectUrl = config["Main:YRU"];
+
+        HttpClient HttpCliente = factory.CreateClient();
+
+        var TokenResponse = await HttpCliente.PostAsync(
+        "https://oauth2.googleapis.com/token",
+        new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["code"] = code,
+            ["client_id"] = YoutubeClientId,
+            ["client_secret"] = YoutubeClientSecret,
+            ["redirect_uri"] = YoutubeRedirectUrl,
+            ["grant_type"] = "authorization_code"
+        }));
+
+        if (!TokenResponse.IsSuccessStatusCode)
+        {
+            var ErrorMessage = await TokenResponse.Content.ReadAsStringAsync();
+            return BadRequest(ErrorMessage);
+        }
+
+        var TokenReply = await TokenResponse.Content.ReadFromJsonAsync<YoutubeCallbackResponse>();
+
+        if (TokenReply == null)
+        {
+            return BadRequest("Error getting callback.");
+        }
+
+        var AccessToken = TokenReply.AccessToken;
+        var ExpiresIn = TokenReply.ExpiresIn;
+        var RefreshToken = TokenReply.RefreshToken;
+
+        var YTChannelInfo = await GetYoutubeChannel(AccessToken);
+
+        if (YTChannelInfo == null)
+        {
+            return BadRequest("Could not find channel.");
+        }
+
+        var ChannelId = YTChannelInfo.Id;
+        var YTChannelUrl = $"https://www.youtube.com/channel/{ChannelId}";
+
+        var ChannelName = YTChannelInfo?.Snippet?.Title;
+
+        await mainhandler.UpdateConnections(int.Parse(UserId), ChannelName, AccessToken, RefreshToken, code, YTChannelUrl, ExpiresIn);
+
+        return Ok(new
+        {
+            success = true,
+        });
+    }
+
+
+    public async Task<YoutubeChannel> GetYoutubeChannel (string AccessToken)
+    {
+        HttpClient HttpCliente = factory.CreateClient();
+
+        HttpCliente.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", AccessToken);
+
+        var response = await HttpCliente.GetAsync(
+        "https://www.googleapis.com/youtube/v3/channels" +
+        "?part=snippet" +
+        "&mine=true");
+
+        response.EnsureSuccessStatusCode();
+
+        var TokenReply = await response.Content.ReadFromJsonAsync<YoutubeChannelResponse>();
+
+        if (TokenReply == null)
+        {
+            return null;
+        }
+
+        return TokenReply?.Items.FirstOrDefault();
     }
 }

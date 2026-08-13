@@ -51,6 +51,7 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
+builder.Services.AddHttpClient();
 builder.Services.AddSingleton<SharedMethods.ServerIdUserIdConnections>();
 builder.Services.AddSingleton<SharedMethods.WebSocketChannelIdConnections>();
 builder.Services.AddSingleton<RedisHandler>();

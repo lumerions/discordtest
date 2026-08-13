@@ -239,7 +239,7 @@ public class Server
 
                         if (success)
                         {
-                            await MsgHandler.SendMessageInServer(WelcomeUser(JoinerUsername), JoinerId, SystemChannelId, "", true, transaction);
+                            await MsgHandler.SendMessageInServer(WelcomeUser(JoinerUsername), JoinerId, SystemChannelId, "", true, transaction, "s");
                         }
                         
                         return returnMessage;
@@ -838,7 +838,7 @@ public class Server
         var ChannelId = reader.GetGuid(0);
         var ServerId = reader.GetGuid(1);
 
-        await MsgHandler.SendMessageInServer(WebhookMessage, 5, ChannelId, "", true, null);
+        await MsgHandler.SendMessageInServer(WebhookMessage, 5, ChannelId, "", true, null, "s");
 
         return true;
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Internal.Database;
 using Internal.Shared;
@@ -27,16 +28,17 @@ public class ProfileInfo
     public string AvatarImageUrl {get; set;} = "";
 
     public List<RoleItem> RoleData {get; set;}
+    public DateTime JoinDate {get; set;}
 }
 
 public class Notification
 {
-    public int UserId;
+    public int UserId {get; set;}
 }
 
 public class FriendRequest : Notification
 {
-    public string Username;
+    public string Username {get; set;}
 }
 
 public class MainHandler
@@ -67,7 +69,11 @@ public class MainHandler
         string SQL = ServerId == null
             ? @"SELECT username, about_me, is_banned
                 FROM users
-                WHERE id = @id;"
+                WHERE id = @id;
+                
+                SELECT storage_path 
+                FROM avatar_uploads
+                WHERE user_id = @id;"
             : @"SELECT username, about_me, is_banned
                 FROM users
                 WHERE id = @id;
@@ -86,7 +92,12 @@ public class MainHandler
                 LEFT JOIN role_icon_uploads i
                     ON i.role_id = r.id
                 WHERE r.user_id = @id
-                AND r.server_id = @server_id;";
+                AND r.server_id = @server_id;
+                
+                SELECT joined_at
+                FROM server_members
+                WHERE server_id = @server_id;
+                ";
 
         await using var conn = await DBHandler.GetConnection();
         await using var cmd = new NpgsqlCommand(SQL, conn);
@@ -104,6 +115,7 @@ public class MainHandler
         var Banned = true;
         var AvatarImage = "";
         var UserRoleData = new List<RoleItem>();
+        var Joined = DateTime.UtcNow;
 
         if (await Reader.ReadAsync()) {
             UserName = Reader.GetString(0);
@@ -136,6 +148,15 @@ public class MainHandler
                         });
                     }
                 }
+
+                if (await Reader.NextResultAsync())
+                {
+                    if (await Reader.ReadAsync())
+                    {
+                        var JoinedAt = Reader.GetDateTime(0);
+                        Joined = JoinedAt;
+                    }
+                }
             }
         }
         
@@ -145,7 +166,8 @@ public class MainHandler
             Bio = AboutMe,
             ProfileName = UserName,
             AvatarImageUrl = AvatarImage,
-            RoleData = UserRoleData
+            RoleData = UserRoleData,
+            JoinDate = Joined
         };
 
         return ProfileInformation;
@@ -265,10 +287,83 @@ public class MainHandler
             if (await Reader.ReadAsync())
             {
                 var SystemChannelId = Reader.GetGuid(0);
-                await MessageHand.SendMessageInServer($"{BoosterName} just boosted the server!", BoosterId, ChannelId, "", true, null);
+                await MessageHand.SendMessageInServer($"{BoosterName} just boosted the server!", BoosterId, ChannelId, "", true, null, "s");
             }
         }
 
-        return false;
+        return true;
+    }
+
+    public async Task<bool> AddConnection (string ConnectionType)
+    {   
+        var ValidConnections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Youtube"
+        };
+
+        if (!ValidConnections.Contains(ConnectionType)) {
+            return false;
+        }
+
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand(@"
+            INSERT INTO server_boosts (server_id, user_id)
+            SELECT @ServerId, @UserId
+            WHERE (
+                SELECT COUNT(*)
+                FROM server_boosts
+                WHERE user_id = @UserId
+            ) < 2
+            AND EXISTS (
+                SELECT 1
+                FROM users u
+                WHERE u.id = @UserId
+                AND u.premium_expires_at IS NOT NULL
+                AND NOW() < u.premium_expires_at
+            )
+
+            SELECT systems_channel
+            FROM server_settings
+            WHERE server_id = @ServerId;
+        ", conn);
+
+        return true;
+    }
+
+    public async Task<bool> UpdateConnections (int UserId, string? YoutubeName, string? AccessToken, string? RefreshToken, string? Code, string? Url, int ExpiresAt)
+    {
+        if (YoutubeName == null) YoutubeName = "not set";
+        if (Code == null) YoutubeName = "";
+        if (RefreshToken == null) YoutubeName = "";
+        if (AccessToken == null) YoutubeName = "";
+        if (Url == null) Url = "";
+        if (ExpiresAt == null) ExpiresAt = 1;
+
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand("""
+            INSERT INTO connections
+                (user_id,name, url, connection_type, api_key, auth_token, is_active, refresh_token, access_token, expires_at)
+            VALUES
+                (@user_id, @name, @url, @connection_type, @keyy, @auth_token, @is_active, @refresh_token, @access_token, @expires_at)
+            """, conn);
+
+        cmd.Parameters.AddWithValue("user_id", UserId);
+        cmd.Parameters.AddWithValue("name", YoutubeName);
+        cmd.Parameters.AddWithValue("url", Url);
+        cmd.Parameters.AddWithValue("connection_type", "youtube");
+        cmd.Parameters.AddWithValue("keyy", Code);
+        cmd.Parameters.AddWithValue("refresh_token", RefreshToken);
+        cmd.Parameters.AddWithValue("access_token", AccessToken);
+        cmd.Parameters.AddWithValue("expires_at", ExpiresAt);
+        cmd.Parameters.AddWithValue("is_active", false);
+
+        return true;
+    }
+
+    public async Task<string> GetYoutubeOauthLink (int ClientId, string Domain, int UserId)
+    {
+
+        var Code = RandomNumberGenerator.GetHexString(16);
+        return $"https://accounts.google.com/o/oauth2/v2/auth ?client_id={ClientId} &redirect_uri={Domain}/api/oauth/youtube/callback &response_type=code &scope=https://www.googleapis.com/auth/youtube.upload &access_type=offline &state={RandomNumberGenerator.GetHexString(16)}";
     }
 }
