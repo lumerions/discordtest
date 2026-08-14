@@ -131,7 +131,10 @@ public class MessageHandler
                 MessagerUserId = -500;
             }
 
-            if (MentionUserString.StartsWith("@")) MentionedMember = true; // @5345393494395934
+            if (MentionUserString.StartsWith("<@") && MentionUserString.EndsWith(">"))
+            {
+                MentionedMember = true;
+            }
 
             await using var conn = await DBHandler.GetConnection();
             await using var cmd = new NpgsqlCommand(@"
@@ -222,7 +225,7 @@ public class MessageHandler
 
             if (MentionedMember)
             {
-                var MentionedId = MentionUserString.Substring(1, MentionUserString.Length);
+                var MentionedId = MentionUserString.Substring(2, MentionUserString.Length - 3);
                 cmd.Parameters.AddWithValue("mentioned_id", MentionedId);
             } else
             {
@@ -299,7 +302,6 @@ public class MessageHandler
 
                 await Shared.SendSocketMessage(null, MessageHereJson);
             }
-
 
             var allMessageJson = JsonSerializer.Serialize(new NewMessagePayload
             {

@@ -1,5 +1,4 @@
 using System;
-using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Internal.Database;
 using Internal.Shared;
@@ -8,6 +7,8 @@ using Internal.Messages;
 using Npgsql;
 using System.Net.WebSockets;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http.Extensions;
+using Microsoft.AspNetCore.WebUtilities;
 
 namespace Internal.Main;
 
@@ -294,76 +295,87 @@ public class MainHandler
         return true;
     }
 
-    public async Task<bool> AddConnection (string ConnectionType)
-    {   
-        var ValidConnections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "Youtube"
-        };
+    public async Task<bool> UpdateConnections (int UserId, string? YoutubeName, string? AccessToken, string? RefreshToken, string? Url, bool? Visible)
+    {
+        if (YoutubeName == null) YoutubeName = "not set";
+        if (RefreshToken == null) RefreshToken = "";
+        if (AccessToken == null) AccessToken = "";
+        if (Url == null) Url = "";
 
-        if (!ValidConnections.Contains(ConnectionType)) {
+        await using var conn = await DBHandler.GetConnection();
+
+        if (YoutubeName == "no" && AccessToken == "no" && RefreshToken == "no" && Url == "no")
+        {
+            await using var cmd = new NpgsqlCommand($"""
+            UPDATE connections
+            SET visible = {Visible}
+            WHERE connection_type = @connection_type AND user_id = @user_id;
+            """, conn);
+
+            cmd.Parameters.AddWithValue("user_id", UserId);
+            cmd.Parameters.AddWithValue("connection_type", "youtube");
+
+            await cmd.ExecuteNonQueryAsync();
+        } else
+        {
+            await using var cmd = new NpgsqlCommand("""
+            INSERT INTO connections
+                (user_id, name, url, connection_type, is_active, refresh_token, access_token)
+            VALUES
+                (@user_id, @name, @url, @connection_type, @is_active, @refresh_token, @access_token)
+            """, conn);
+
+            cmd.Parameters.AddWithValue("user_id", UserId);
+            cmd.Parameters.AddWithValue("name", YoutubeName);
+            cmd.Parameters.AddWithValue("url", Url);
+            cmd.Parameters.AddWithValue("connection_type", "youtube");
+            cmd.Parameters.AddWithValue("refresh_token", RefreshToken);
+            cmd.Parameters.AddWithValue("access_token", AccessToken);
+            cmd.Parameters.AddWithValue("is_active", false);
+
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        return true;
+    }
+
+    public async Task<string> GetYoutubeOauthLink (string ClientId, string Domain, string Code)
+    {
+        await using var conn = await DBHandler.GetConnection();
+
+        var query = new Dictionary<string, string>
+        {
+            ["client_id"] = ClientId,
+            ["redirect_uri"] = Domain,
+            ["response_type"] = "code",
+            ["scope"] = "https://www.googleapis.com/auth/youtube.upload",
+            ["access_type"] = "offline",
+            ["state"] = Code
+        };
+        
+        return QueryHelpers.AddQueryString("https://accounts.google.com/o/oauth2/v2/auth", query);
+    }
+
+    public async Task<bool> StateValid (string StateCode, int UserId)
+    {
+        await using var conn = await DBHandler.GetConnection();
+
+        await using var cmd = new NpgsqlCommand($"""
+        SELECT statee FROM connections
+        WHERE connection_type = @connection_type AND user_id = @user_id;
+        """, conn);
+
+        cmd.Parameters.AddWithValue("user_id", UserId);
+        cmd.Parameters.AddWithValue("connection_type", "youtube");
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        var State = reader.GetString(0);
+
+        if (StateCode != State) {
             return false;
         }
 
-        await using var conn = await DBHandler.GetConnection();
-        await using var cmd = new NpgsqlCommand(@"
-            INSERT INTO server_boosts (server_id, user_id)
-            SELECT @ServerId, @UserId
-            WHERE (
-                SELECT COUNT(*)
-                FROM server_boosts
-                WHERE user_id = @UserId
-            ) < 2
-            AND EXISTS (
-                SELECT 1
-                FROM users u
-                WHERE u.id = @UserId
-                AND u.premium_expires_at IS NOT NULL
-                AND NOW() < u.premium_expires_at
-            )
-
-            SELECT systems_channel
-            FROM server_settings
-            WHERE server_id = @ServerId;
-        ", conn);
-
         return true;
-    }
-
-    public async Task<bool> UpdateConnections (int UserId, string? YoutubeName, string? AccessToken, string? RefreshToken, string? Code, string? Url, int ExpiresAt)
-    {
-        if (YoutubeName == null) YoutubeName = "not set";
-        if (Code == null) YoutubeName = "";
-        if (RefreshToken == null) YoutubeName = "";
-        if (AccessToken == null) YoutubeName = "";
-        if (Url == null) Url = "";
-        if (ExpiresAt == null) ExpiresAt = 1;
-
-        await using var conn = await DBHandler.GetConnection();
-        await using var cmd = new NpgsqlCommand("""
-            INSERT INTO connections
-                (user_id,name, url, connection_type, api_key, auth_token, is_active, refresh_token, access_token, expires_at)
-            VALUES
-                (@user_id, @name, @url, @connection_type, @keyy, @auth_token, @is_active, @refresh_token, @access_token, @expires_at)
-            """, conn);
-
-        cmd.Parameters.AddWithValue("user_id", UserId);
-        cmd.Parameters.AddWithValue("name", YoutubeName);
-        cmd.Parameters.AddWithValue("url", Url);
-        cmd.Parameters.AddWithValue("connection_type", "youtube");
-        cmd.Parameters.AddWithValue("keyy", Code);
-        cmd.Parameters.AddWithValue("refresh_token", RefreshToken);
-        cmd.Parameters.AddWithValue("access_token", AccessToken);
-        cmd.Parameters.AddWithValue("expires_at", ExpiresAt);
-        cmd.Parameters.AddWithValue("is_active", false);
-
-        return true;
-    }
-
-    public async Task<string> GetYoutubeOauthLink (int ClientId, string Domain, int UserId)
-    {
-
-        var Code = RandomNumberGenerator.GetHexString(16);
-        return $"https://accounts.google.com/o/oauth2/v2/auth ?client_id={ClientId} &redirect_uri={Domain}/api/oauth/youtube/callback &response_type=code &scope=https://www.googleapis.com/auth/youtube.upload &access_type=offline &state={RandomNumberGenerator.GetHexString(16)}";
     }
 }

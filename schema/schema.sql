@@ -235,6 +235,16 @@ CREATE TABLE IF NOT EXISTS server_message_mentions (
     PRIMARY KEY (message_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS pm_pins (
+    message_id UUID NOT NULL REFERENCES private_messages(id) ON DELETE CASCADE,
+);
+
+CREATE TABLE IF NOT EXISTS server_pins (
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    message_id UUID NOT NULL REFERENCES server_messages(id) ON DELETE CASCADE,
+    channel_id UUID REFERENCES server_channels(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS server_invites (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
@@ -262,11 +272,10 @@ CREATE TABLE IF NOT EXISTS connections (
     name VARCHAR(100) NOT NULL,
     url VARCHAR(255) NOT NULL,
     connection_type VARCHAR(50) DEFAULT 'none',
-    keyy VARCHAR(255)  NOT NULL,
     refresh_token VARCHAR(255)  NOT NULL,
     access_token VARCHAR(255) NOT NULL,
-    expires_at BIGINT NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
+    statee VARCHAR(255) NOT NULL,
+    visible BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT NOW()
 );
 

@@ -1,7 +1,3 @@
-
-using System;
-using System.Security;
-
 namespace Internal.Roles;
 
 [Flags]
@@ -43,6 +39,7 @@ public enum Permissions : long
     ManageNicknames      = 1L << 26,
     UseSlashCommands     = 1L << 27,
     RequestToSpeak       = 1L << 28,
+    PinnedMessages       = 1L << 29,
 
     Administrator        = 1L << 30
 }

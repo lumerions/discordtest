@@ -14,8 +14,15 @@ using Microsoft.AspNetCore.RateLimiting;
 using Controllers.ControllBase;
 using System.Net.Http.Headers;
 using System.Text.Json.Serialization;
+using System.Security.Cryptography;
 
 namespace Internal.MainController;
+
+public class ConnectionsChangeRequest
+{
+    public bool Visible {get; set;}
+}
+
 
 public class TypingRequest
 {
@@ -118,9 +125,61 @@ public class MainController : BaseController
 
     [Authorize]
     [EnableRateLimiting("api")]
+    [HttpPost("ConnectionVisibility")]
+    public async Task<IActionResult> SetConnectionVisibility ([FromBody] ConnectionsChangeRequest request)
+    {
+        var ConnectionVisible = request.Visible;
+        var Id = 0;
+
+        if (UserId == null) return BadRequest("UserId doesn't exist.");
+
+        if (!GetIdValue(ref Id))
+        {
+            return Unauthorized();
+        }
+
+        await mainhandler.UpdateConnections(Id, "no", "no", "no", "no", ConnectionVisible);
+
+        return Ok(new
+        {
+            success = true
+        });
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("oauth/start/youtube")]
+    public async Task<IActionResult> OauthStart ([FromBody] TypingRequest request)
+    {
+        var YoutubeClientId = config["Main:YTCI"];
+        var Code = RandomNumberGenerator.GetHexString(16);
+        var ConstructedUrl = mainhandler.GetYoutubeOauthLink(YoutubeClientId!, "test", Code);
+        var Id = 0;
+
+        if (!GetIdValue(ref Id))
+        {
+            return Unauthorized();
+        }
+
+        await mainhandler.UpdateConnections(Id, "no", "no", "no", "notset", null);
+
+        return Ok(new
+        {
+            url = ConstructedUrl,
+            success = true
+        });
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
     [HttpGet("oauth/youtube/callback")]
     public async Task<IActionResult> YoutubeCallback ([FromQuery] string? code, [FromQuery] string? state, [FromQuery] string? error)
     {
+        var Id = 0;
+        if (!string.IsNullOrEmpty(error))
+        {
+            return BadRequest("Error with callback");
+        }
         if (string.IsNullOrEmpty(code))
         {
             return BadRequest("Invalid or expired code.");
@@ -129,9 +188,17 @@ public class MainController : BaseController
         {
             return BadRequest("Invalid or expired state.");
         }
-        if (!string.IsNullOrEmpty(error))
+
+        if (!GetIdValue(ref Id))
         {
-            return BadRequest("Error with callback");
+            return Unauthorized();
+        }
+
+        var StateValid = await mainhandler.StateValid(state, Id);
+
+        if (!StateValid)
+        {
+            return Unauthorized();
         }
 
         var YoutubeClientId = config["Main:YTCI"];
@@ -145,9 +212,9 @@ public class MainController : BaseController
         new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["code"] = code,
-            ["client_id"] = YoutubeClientId,
-            ["client_secret"] = YoutubeClientSecret,
-            ["redirect_uri"] = YoutubeRedirectUrl,
+            ["client_id"] = YoutubeClientId!,
+            ["client_secret"] = YoutubeClientSecret!,
+            ["redirect_uri"] = YoutubeRedirectUrl!,
             ["grant_type"] = "authorization_code"
         }));
 
@@ -165,7 +232,7 @@ public class MainController : BaseController
         }
 
         var AccessToken = TokenReply.AccessToken;
-        var ExpiresIn = TokenReply.ExpiresIn;
+        //var ExpiresIn = TokenReply.ExpiresIn;
         var RefreshToken = TokenReply.RefreshToken;
 
         var YTChannelInfo = await GetYoutubeChannel(AccessToken);
@@ -180,7 +247,7 @@ public class MainController : BaseController
 
         var ChannelName = YTChannelInfo?.Snippet?.Title;
 
-        await mainhandler.UpdateConnections(int.Parse(UserId), ChannelName, AccessToken, RefreshToken, code, YTChannelUrl, ExpiresIn);
+        await mainhandler.UpdateConnections(Id, ChannelName, AccessToken, RefreshToken, YTChannelUrl, null);
 
         return Ok(new
         {
@@ -188,8 +255,7 @@ public class MainController : BaseController
         });
     }
 
-
-    public async Task<YoutubeChannel> GetYoutubeChannel (string AccessToken)
+    public async Task<YoutubeChannel?> GetYoutubeChannel (string AccessToken)
     {
         HttpClient HttpCliente = factory.CreateClient();
 

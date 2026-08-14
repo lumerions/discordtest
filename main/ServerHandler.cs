@@ -511,6 +511,26 @@ public class Server
         }
     }
 
+    public async Task<bool> ChangeChannelPosition(Guid ServerId, int Position, int NewPosition)
+    {
+        try
+        {
+            return await DBHandler.ExecuteAsync(@"
+                UPDATE server_channels
+                SET position = @new_position
+                WHERE server_id = @server_id AND position = @position;
+            ", cmd =>
+            {
+                cmd.Parameters.AddWithValue("server_id", ServerId);
+                cmd.Parameters.AddWithValue("position", Position);
+                cmd.Parameters.AddWithValue("new_position", NewPosition);
+            }).ContinueWith(t => t.Result > 0);
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return false;
+        }
+    }
+
 
     public async Task<List<Members>> GetMemberList (Guid ServerId, Guid? LastId, int? LastPosition)
     {
@@ -1050,6 +1070,108 @@ public class Server
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
+        }
+    }
+
+    public async Task<bool> PinMessage (Guid ServerId, Guid MessageId, int ChangerId, bool PrivateMessage)
+    {
+        try
+        {
+            var TableName = "";
+            var UpdateSql = "";
+
+            if (PrivateMessage) {
+                var PermissionsNumber = await GetPermissionNumber(ServerId, ChangerId);
+                var Perm = (Permissions) PermissionsNumber;
+                var CanPinMessages = (Perm & Permissions.PinnedMessages) != 0;
+
+                if (CanPinMessages)
+                {
+                    return false;
+                }
+                
+                TableName = "pm_pins";
+                UpdateSql = $"""
+                    INSERT INTO {TableName} (message_id, server_id)
+                    VALUES (@message_id, @server_id);
+
+                    DELETE FROM {TableName}
+                    WHERE id = (
+                        SELECT id FROM {TableName} 
+                        WHERE (SELECT COUNT(*) FROM {TableName}) > 50
+                        ORDER BY id ASC
+                        LIMIT 1
+                    );
+                """;
+
+            } else
+            {
+                TableName = "server_pins";
+
+                UpdateSql = $"""
+                    INSERT INTO {TableName} (message_id)
+                    VALUES (@message_id);
+
+                    DELETE FROM {TableName}
+                    WHERE id = (
+                        SELECT id FROM {TableName} 
+                        WHERE (SELECT COUNT(*) FROM {TableName}) > 50
+                        ORDER BY id ASC
+                        LIMIT 1
+                    );
+                """;
+            }
+
+            return await DBHandler.ExecuteAsync(UpdateSql, cmd =>
+                {
+                    if (PrivateMessage)
+                    {
+                        cmd.Parameters.AddWithValue("server_id", ServerId);
+                    }
+                    cmd.Parameters.AddWithValue("message_id", MessageId);
+            }).ContinueWith(t => t.Result > 0);
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return false;
+        }
+    }
+
+    public async Task<List<Guid>> ReadPinMessageHistory (Guid ServerId, bool PrivateMessage)
+    {
+        var Ids = new List<Guid>();
+
+        try
+        {
+            var TableName = "";
+            var ReadSql = "";
+
+            if (PrivateMessage) {
+                TableName = "pm_pins";
+                ReadSql = $"SELECT * FROM {TableName} WHERE message_id = @message_id;"; // this wasnt fully finished
+            } else
+            {
+                TableName = "server_pins";
+                ReadSql = $"SELECT message_id FROM {TableName} WHERE server_id = @server_id;";
+            }
+
+            await using var conn = await DBHandler.GetConnection();
+
+            await using var cmd = new NpgsqlCommand(ReadSql, conn);
+
+            cmd.Parameters.AddWithValue("server_id", ServerId);
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+
+            while (await reader.ReadAsync())
+            {
+                var MessageId = reader.GetGuid(0);
+                Ids.Add(MessageId);
+            }
+
+            return Ids;
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return Ids;
         }
     }
 }

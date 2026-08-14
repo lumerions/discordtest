@@ -41,6 +41,14 @@ public record InviteDto : ServerIdChannelIdBase
     public required int MaxUses {get; init;}
 }
 
+public record ChangeServerPosition : ServerIdBase
+{
+    [Required]
+    public required int Position {get; init;}
+    public required int NewPosition {get; init;}
+}
+
+
 public record NewChannel : ServerIdBase
 {
     [Required]
@@ -129,20 +137,6 @@ public class ServersController : BaseController
         var Perm = (Permissions) PermissionNumber;
 
         return (Perm, true, PermissionInfo);
-    }
-
-    public bool GetIdValue (ref int IdVar)
-    {
-        if (string.IsNullOrWhiteSpace(UserId)) return false;
-        if (string.IsNullOrWhiteSpace(UserName)) return false;
-
-        if (int.TryParse(UserId, out var IdValue))
-        {
-            IdVar = IdValue;
-            return true;
-        }
-
-        return false;
     }
 
     public ServersController (SharedMethods.WebSocketSessionManager manager, RedisHandler redis_, Server ServerHandler_, SharedMethods.WebSocketChannelIdConnections  websocketconns)
@@ -451,6 +445,44 @@ public class ServersController : BaseController
         await ServerHandler.ChangeServerNickname(ServerId, NewNicknameId, NewNickname);
         // websocket support needs to be added for all of this but ill do it later
         
+        return Ok(new
+        {
+            success = true
+        });
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("new-channel")]
+    public async Task<IActionResult> NewServerChannel ([FromBody] ChangeServerPosition request)
+    {
+        var Position = request.Position;
+        var NewPosition = request.NewPosition;
+        var ServerId = request.ServerId;
+        int Id = 0;
+
+        if (!GetIdValue(ref Id))
+        {
+            return Unauthorized();
+        }
+
+        var PermissionResult = await GetPerm(ServerId, Id, true);
+        var Perm = PermissionResult.Perm;
+        
+        if (Perm == null) 
+        { 
+            return BadRequest();
+        }
+
+        var CanManageChannels = (Perm & Permissions.ManageChannels) != 0;
+
+        if (!CanManageChannels)
+        {
+            return Unauthorized();
+        }
+
+        await ServerHandler.ChangeChannelPosition(ServerId, Position, NewPosition);
+    
         return Ok(new
         {
             success = true
