@@ -3,8 +3,6 @@ using StackExchange.Redis;
 using System.Net.WebSockets;
 using Internal.Redis;
 using System.Text;
-using System.Text.Json.Nodes;
-using Microsoft.VisualBasic;
 
 namespace Internal.Shared;
 
@@ -28,6 +26,13 @@ public class SharedMethods
         ".png",
         ".webp"
     };
+    public static readonly Dictionary<string, string> TypeInfo = new(StringComparer.OrdinalIgnoreCase)
+    {
+        {"Avatar", "avatar_uploads"},
+        {"RoleIcons", "role_icon_uploads"},
+        {"Webhook", "webhook_uploads"},
+        {"Reaction", "reaction_uploads"}
+    };
     private readonly WebSocketSessionManager Manager;
     private readonly IDatabase RedisDatabase;
     private readonly WebSocketChannelIdConnections websocketconns_;
@@ -41,14 +46,6 @@ public class SharedMethods
 
     public Dictionary<string, string> UploadsInfo ()
     {
-        var TypeInfo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            {"Avatar", "avatar_uploads"},
-            {"RoleIcons", "role_icon_uploads"},
-            {"Webhook", "webhook_uploads"},
-            {"Reaction", "reaction_uploads"}
-        };
-
         return TypeInfo;
     }
 
