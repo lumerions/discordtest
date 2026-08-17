@@ -40,6 +40,6 @@ public enum Permissions : long
     UseSlashCommands     = 1L << 27,
     RequestToSpeak       = 1L << 28,
     PinnedMessages       = 1L << 29,
-
+    
     Administrator        = 1L << 30
 }

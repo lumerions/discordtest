@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
 using Internal.Database;
 using Internal.Shared;
-using Microsoft.Extensions.Options;
 using Controllers.ControllBase;
 
 public class UploadImage
@@ -58,7 +57,7 @@ public class UsersController : BaseController
             var Extension = Path.GetExtension(file.FileName);
 
             if (!SharedMethods.AllowedExtension(Extension)) return BadRequest("This file extension isn't supported.");
-            if (!SharedMethods.AllowedMime(file.ContentType)) return BadRequest("This mime type isn't supported.");
+            if (!SharedMethods.IsAllowedMime(file.ContentType)) return BadRequest("This mime type isn't supported.");
 
             var AvatarImagesPath = Path.Combine(Directory.GetCurrentDirectory(), TypeInfoValue);
             Directory.CreateDirectory(AvatarImagesPath);       

@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
     nonce BYTEA,
     password_hash TEXT NOT NULL,
     about_me VARCHAR(250),
+    pronouns VARCHAR(30),
+    server_tag_id TEXT REFERENCES server_tag(id) ON DELETE SET NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     is_verified BOOLEAN NOT NULL DEFAULT FALSE,
     premium_expires_at TIMESTAMPTZ,
@@ -79,7 +81,6 @@ CREATE TABLE IF NOT EXISTS dm_messages (
     edited BOOLEAN DEFAULT FALSE
 );
 
-
 CREATE TABLE IF NOT EXISTS server_message_attachments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     message_id UUID NOT NULL REFERENCES server_messages(id) ON DELETE CASCADE,
@@ -90,6 +91,7 @@ CREATE TABLE IF NOT EXISTS servers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     server_owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     server_name VARCHAR(100) NOT NULL,
+    boosts_spent SMALLINT,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -119,7 +121,7 @@ CREATE TABLE IF NOT EXISTS server_roles (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
     name VARCHAR(32) NOT NULL,
-    color INTEGER, 
+    color INTEGER,
     position INT NOT NULL DEFAULT 0,
     permissions BIGINT NOT NULL DEFAULT 0,
     separated BOOLEAN NOT NULL,
@@ -133,7 +135,14 @@ CREATE TABLE IF NOT EXISTS server_channels (
     type VARCHAR(20) NOT NULL, -- 'text', 'voice', 'category'
     position INT NOT NULL DEFAULT 0,
     rules_channel BOOLEAN NOT NULL DEFAULT FALSE,
-    channel_topic VARCHAR(100) DEFAULT ''
+    channel_topic VARCHAR(100) DEFAULT '',
+    channel_slowmode TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS channel_slowmode (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    channel_id UUID NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
+    last_message_time TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS server_channels_webhooks (
@@ -155,9 +164,9 @@ CREATE TABLE IF NOT EXISTS server_automod (
     custom_words_list TEXT DEFAULT '',
     custom_phrases_words_allowed TEXT DEFAULT '',
     automod_word_violation_response SMALLINT NOT NULL DEFAULT 0, -- 0 = Block Message 1 = Send Alert 2 = Timeout Member
-    automod_custom_words_rule_name VARCHAR(200) DEFAULT 'Block Custom Words'
+    automod_custom_words_rule_name VARCHAR(200) DEFAULT 'Block Custom Words',
     automod_channels_role_ids_bypass JSONB NOT NULL DEFAULT '{}'
-)
+);
 
 CREATE TABLE IF NOT EXISTS server_bans (
     id BIGSERIAL PRIMARY KEY,
@@ -216,7 +225,6 @@ CREATE TABLE IF NOT EXISTS private_message_reactions (
     reaction_id UUID NOT NULL REFERENCES reaction_uploads(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-
     PRIMARY KEY (message_id, reaction_id, user_id)
 );
 
@@ -225,7 +233,6 @@ CREATE TABLE IF NOT EXISTS server_message_reactions (
     reaction_id UUID NOT NULL REFERENCES reaction_uploads(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-
     PRIMARY KEY (message_id, reaction_id, user_id)
 );
 
@@ -236,7 +243,7 @@ CREATE TABLE IF NOT EXISTS server_message_mentions (
 );
 
 CREATE TABLE IF NOT EXISTS pm_pins (
-    message_id UUID NOT NULL REFERENCES private_messages(id) ON DELETE CASCADE,
+    message_id UUID NOT NULL REFERENCES private_messages(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS server_pins (
@@ -252,7 +259,7 @@ CREATE TABLE IF NOT EXISTS server_invites (
     code VARCHAR(32) NOT NULL UNIQUE,
     channel_id UUID REFERENCES server_channels(id) ON DELETE SET NULL,
     max_uses SMALLINT, -- 32000 = unlimited
-    uses SMALLINT NOT NULL DEFAULT 0, 
+    uses SMALLINT NOT NULL DEFAULT 0,
     expires_at TIMESTAMP, -- null = unlimited
     is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -260,9 +267,16 @@ CREATE TABLE IF NOT EXISTS server_invites (
 
 CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sender_id INTEGER NOT NULL,  -- sender id
-    request_id INTEGER NOT NULL,  -- request id
-    type BOOLEAN NOT NULL,   -- true = Friend Request false = Private Message
+    sender_id INTEGER NOT NULL, -- sender id
+    request_id INTEGER NOT NULL, -- request id
+    type BOOLEAN NOT NULL, -- true = Friend Request false = Private Message
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS server_tag (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    server_tag_id SMALLINT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
@@ -272,17 +286,30 @@ CREATE TABLE IF NOT EXISTS connections (
     name VARCHAR(100) NOT NULL,
     url VARCHAR(255) NOT NULL,
     connection_type VARCHAR(50) DEFAULT 'none',
-    refresh_token VARCHAR(255)  NOT NULL,
+    refresh_token VARCHAR(255) NOT NULL,
     access_token VARCHAR(255) NOT NULL,
     statee VARCHAR(255) NOT NULL,
     visible BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_server_roles_scroll ON server_roles (server_id, user_id, position DESC, id);
-CREATE INDEX IF NOT EXISTS idx_server_members_user ON server_members(user_id);
-CREATE INDEX IF NOT EXISTS idx_server_members_server ON server_members(server_id);
-CREATE INDEX IF NOT EXISTS idx_bans_guild_id ON server_bans (guild_id);
-CREATE INDEX IF NOT EXISTS idx_bans_user_id ON server_bans (user_id);
-CREATE INDEX IF NOT EXISTS idx_bans_guild_user ON server_bans (guild_id, user_id);
-CREATE INDEX IF NOT EXISTS CONCURRENTLY idx_server_messages_created_at_id ON server_messages (created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_server_roles_scroll
+    ON server_roles (server_id, user_id, position DESC, id);
+
+CREATE INDEX IF NOT EXISTS idx_server_members_user
+    ON server_members(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_server_members_server
+    ON server_members(server_id);
+
+CREATE INDEX IF NOT EXISTS idx_bans_guild_id
+    ON server_bans (guild_id);
+
+CREATE INDEX IF NOT EXISTS idx_bans_user_id
+    ON server_bans (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_bans_guild_user
+    ON server_bans (guild_id, user_id);
+
+CREATE INDEX IF NOT EXISTS CONCURRENTLY idx_server_messages_created_at_id
+    ON server_messages (created_at DESC, id DESC);

@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Security.Cryptography;
 using Internal.Messages;
 using Internal.Roles;
@@ -7,6 +8,7 @@ using Internal.Shared;
 using Internal.Database;
 using Npgsql;
 using System.Text.Json;
+using System.Data;
 
 namespace Internal.Servers;
 
@@ -35,6 +37,7 @@ public record Message (
     DateTime created_at,
     bool edited
 );
+
 
 public class Server
 {
@@ -1172,6 +1175,109 @@ public class Server
         } catch (Exception error) {
             Console.WriteLine(error);
             return Ids;
+        }
+    }
+
+    public async Task<Dictionary<string, List<string>>> GetServerInformation (Guid ServerId)
+    {
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand(@"
+            SELECT
+                (SELECT COUNT(*)
+                FROM server_members
+                WHERE server_id = @ServerId) AS member_count,
+                (SELECT array_agg(channel_name)
+                FROM server_channels
+                WHERE server_id = @ServerId) AS channel_names,
+                (SELECT COUNT(*)
+                FROM server_boosts
+                WHERE server_id = @ServerId) AS server_boost_count;
+        ", conn);
+
+        cmd.Parameters.AddWithValue("ServerId", ServerId);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        var ServerInfo = new Dictionary<string, List<string>>();
+
+        if (!await reader.ReadAsync())
+        {
+            return ServerInfo;
+        }
+
+        var ServerMemberCount = reader.GetInt32(0);
+        var OnlineMemberCount = GetOnlineCountByServerId(ServerId);
+        var ServerChannels = reader.IsDBNull(1) ? Array.Empty<string>() : reader.GetFieldValue<string[]>(1);
+        var ServerBoostCount = reader.GetInt32(2);
+        var MemberCountList = new List<string>();
+        var OnlineMemberList = new List<string>();
+        var ServerChannelsList = new List<string>();
+        var ServerBoostList = new List<string>();
+
+        MemberCountList.Add(ServerMemberCount.ToString());
+        OnlineMemberList.Add(OnlineMemberCount.ToString());
+        ServerBoostList.Add(ServerBoostCount.ToString());
+
+        ServerInfo.Add("MemberCount", MemberCountList);
+        ServerInfo.Add("OnlineMemberCount", OnlineMemberList);
+        ServerInfo.Add("ServerChannels", ServerChannelsList);
+        ServerInfo.Add("ServerBoostCount", ServerBoostList);
+
+        return ServerInfo;
+    }
+
+    public async Task<string> EnableServerTag (Guid ServerId, int ChangerId, int ServerTagImageId)
+    {
+        try
+        {
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(@"
+                SELECT 
+                    (SELECT COUNT(*) 
+                    FROM server_boosts 
+                    WHERE server_id = @ServerId) AS server_boost_count,
+
+                    (SELECT boosts_spent 
+                    FROM servers 
+                    WHERE id = @ServerId) AS boosts_spent;
+            ", conn);
+
+            cmd.Parameters.AddWithValue("ServerId", ServerId);
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+
+            if (!await reader.ReadAsync())
+            {
+                return "This server has no boosts.";
+            }
+
+            var BoostCount = reader.GetInt32(0);
+            var BoostsAvailable = reader.GetInt16(1);
+            var CanSpendBoost = BoostCount - BoostsAvailable >= 3;
+
+            if (!CanSpendBoost)
+            {
+                return "Not enough boosts.";
+            }
+
+            await reader.DisposeAsync();
+
+            await using var WriteCmd = new NpgsqlCommand(@"
+                UPDATE servers 
+                SET boosts_spent = boosts_spent + 3 
+                WHERE id = @ServerId;
+
+                INSERT INTO server_tag (server_id, server_tag_id) 
+                VALUES (@ServerId, @ServerTagImageId);
+            ", conn);
+
+            WriteCmd.Parameters.AddWithValue("ServerId", ServerId);
+            WriteCmd.Parameters.AddWithValue("ServerTagImageId", ServerTagImageId);
+
+            await WriteCmd.ExecuteNonQueryAsync();
+
+            return "Success";
+        } catch (Exception error) {
+            return "Internal Server Error.";
         }
     }
 }

@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Internal.Database;
 
 namespace Internal.Accounts;

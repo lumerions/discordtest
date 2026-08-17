@@ -103,18 +103,24 @@ public class UsersHandler
         return success;
     }
 
-    public async Task<bool> RejectFriendRequest (Guid NotificationId)
+    public async Task<string> RejectFriendRequest (Guid NotificationId)
     {
-        var Conn = await DBHandler.GetConnection();
-        var Cmd = new NpgsqlCommand($"DELETE FROM notifications WHERE id = @NotificationId RETURNING id;", Conn);
-        Cmd.Parameters.AddWithValue("NotificationId", NotificationId);
-        var Result = await Cmd.ExecuteScalarAsync();
-
-        if (Result == null)
+        try
         {
-            return false;
+            var Conn = await DBHandler.GetConnection();
+            var Cmd = new NpgsqlCommand($"DELETE FROM notifications WHERE id = @NotificationId RETURNING id;", Conn);
+            Cmd.Parameters.AddWithValue("NotificationId", NotificationId);
+            var Result = await Cmd.ExecuteScalarAsync();
+
+            if (Result == null)
+            {
+                return "Notification not found.";
+            }
+            
+            return "Success";
+        } catch (Exception err)
+        {
+           return "Internal Server Error.";
         }
-        
-        return true;
     }
 }

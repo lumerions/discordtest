@@ -11,7 +11,23 @@ namespace Internal.Shared;
 public class SharedMethods
 {
 
-
+    private static readonly Dictionary<int, string> ServerTagImageUrls = new()
+    {
+        [1] = "https://discord.com"
+    };
+    private static readonly HashSet<string> AllowedMime = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+    };
+    private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp"
+    };
     private readonly WebSocketSessionManager Manager;
     private readonly IDatabase RedisDatabase;
     private readonly WebSocketChannelIdConnections websocketconns_;
@@ -105,17 +121,8 @@ public class SharedMethods
         await Task.WhenAll(MessageTasks);
     }
 
-
     public static bool AllowedExtension(string Extension)
     {
-        var AllowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".webp"
-        };
-
         if (!AllowedExtensions.Contains(Extension)) {
             return false;
         }
@@ -123,19 +130,22 @@ public class SharedMethods
         return true;
     }
 
-    public static bool AllowedMime(string Mime)
+    public static bool IsAllowedMime(string Mime)
     {
-        var AllowedMime = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "image/jpeg",
-            "image/png",
-            "image/webp"
-        };
-
         if (!AllowedMime.Contains(Mime)) {
             return false;
         }
 
         return true;
+    }
+
+    public static string GetServerTagImageUrl(int ServerTagId)
+    {
+        if (ServerTagImageUrls.TryGetValue(ServerTagId, out var ServerTagImageUrl))
+        {
+            return ServerTagImageUrl;
+        }
+
+        return "Unknown Id";
     }
 }

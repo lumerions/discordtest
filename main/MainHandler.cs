@@ -30,6 +30,8 @@ public class ProfileInfo
 
     public List<RoleItem> RoleData {get; set;}
     public DateTime JoinDate {get; set;}
+    public DateTime AccountCreated {get; set;}
+    public int? MutualServers {get; set;}
 }
 
 public class Notification
@@ -65,17 +67,17 @@ public class MainHandler
 
         return (true, null);
     }
-    public async Task<ProfileInfo> GetProfileInfo(int UserId, int? ServerId)
+    public async Task<ProfileInfo> GetProfileInfo(int UserId, int ViewerId, int? ServerId)
     {
         string SQL = ServerId == null
-            ? @"SELECT username, about_me, is_banned
+            ? @"SELECT username, about_me, is_banned, created_at
                 FROM users
                 WHERE id = @id;
                 
                 SELECT storage_path 
                 FROM avatar_uploads
                 WHERE user_id = @id;"
-            : @"SELECT username, about_me, is_banned
+            : @"SELECT username, about_me, is_banned, created_at
                 FROM users
                 WHERE id = @id;
 
@@ -97,13 +99,18 @@ public class MainHandler
                 
                 SELECT joined_at
                 FROM server_members
-                WHERE server_id = @server_id;
+                WHERE server_id = @server_id AND user_id = @id;
+
+                SELECT 1
+                FROM server_members
+                WHERE user_id = @id AND user_id = @id2;
                 ";
 
         await using var conn = await DBHandler.GetConnection();
         await using var cmd = new NpgsqlCommand(SQL, conn);
 
         cmd.Parameters.AddWithValue("id", UserId);
+        cmd.Parameters.AddWithValue("id2", ViewerId);
 
         if (ServerId != null)
         {
@@ -117,11 +124,14 @@ public class MainHandler
         var AvatarImage = "";
         var UserRoleData = new List<RoleItem>();
         var Joined = DateTime.UtcNow;
+        var JoinedDiscordia = DateTime.UtcNow;
+        int? MutualServers = null;
 
         if (await Reader.ReadAsync()) {
             UserName = Reader.GetString(0);
             AboutMe = Reader.IsDBNull(0) ? "" : Reader.GetString(1);
             Banned = Reader.GetBoolean(2);
+            JoinedDiscordia = Reader.GetDateTime(3);
 
             if (await Reader.NextResultAsync())
             {
@@ -158,6 +168,15 @@ public class MainHandler
                         Joined = JoinedAt;
                     }
                 }
+
+                if (await Reader.NextResultAsync())
+                {
+                    MutualServers = 0;
+                    if (await Reader.ReadAsync())
+                    {
+                        MutualServers += 1;
+                    }
+                }
             }
         }
         
@@ -168,7 +187,9 @@ public class MainHandler
             ProfileName = UserName,
             AvatarImageUrl = AvatarImage,
             RoleData = UserRoleData,
-            JoinDate = Joined
+            JoinDate = Joined,
+            AccountCreated = JoinedDiscordia,
+            MutualServers = MutualServers
         };
 
         return ProfileInformation;
@@ -377,5 +398,79 @@ public class MainHandler
         }
 
         return true;
+    }
+
+    public async Task<bool> ChangeProfileData (bool ChangeBio, int UserId, string Text)
+    {   
+        string ColumnName = "pronouns";
+
+        if (ChangeBio) ColumnName = "bio";
+
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand($"""
+            UPDATE users
+            SET {ColumnName} = @Text
+            WHERE id = @UserId;
+        """, conn);
+
+        cmd.Parameters.AddWithValue("Text", Text);
+        cmd.Parameters.AddWithValue("UserId", UserId);
+
+        await cmd.ExecuteNonQueryAsync();
+
+        return true;
+    }
+
+    public async Task<bool> BanUser (int UserId, int BanNumber)
+    {   
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand($"""
+            UPDATE users
+            SET is_banned = @BanNumber
+            WHERE id = @UserId;
+        """, conn);
+
+        cmd.Parameters.AddWithValue("BanNumber", BanNumber);
+        cmd.Parameters.AddWithValue("UserId", UserId);
+
+        await cmd.ExecuteNonQueryAsync();
+
+        return true;
+    }
+
+    public async Task<string> TurnOnServerTag (Guid ServerId, int ChangerId, int ServerTagId)
+    {   
+        try
+        {
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand($"""
+                UPDATE users
+                SET server_tag_id = @ServerTagId
+                WHERE id = @UserId
+                AND EXISTS (
+                    SELECT 1
+                    FROM server_members SM
+                    WHERE SM.user_id = @UserId AND SM.server_id = @ServerId
+                )
+                
+                RETURNING id;
+            """, conn);
+
+            cmd.Parameters.AddWithValue("ServerTagId", ServerTagId);
+            cmd.Parameters.AddWithValue("UserId", ChangerId);
+            cmd.Parameters.AddWithValue("ServerId", ServerId);
+
+            var Success = await cmd.ExecuteScalarAsync();
+
+            if (Success != null)
+            {
+                return "Success";
+            }
+
+            return "You are no longer in this server.";
+        } catch (Exception error)
+        {
+            return "Internal Server Error.";
+        }
     }
 }

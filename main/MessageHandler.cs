@@ -184,7 +184,49 @@ public class MessageHandler
                             )
                         )
                     )
+                    AND EXISTS (
+                        SELECT 1
+                        FROM server_channels sc
+                        WHERE sc.id = @channel_id
+                        AND (
+                            sc.channel_slowmode IS NULL
+                            OR NOT EXISTS (
+                                SELECT 1
+                                FROM channel_slowmode cs
+                                WHERE cs.user_id = @sender_id
+                                AND cs.channel_id = @channel_id
+                            )
+                            OR EXISTS (
+                                SELECT 1
+                                FROM channel_slowmode cs
+                                WHERE cs.user_id = @sender_id
+                                AND cs.channel_id = @channel_id
+                                AND cs.last_message_time
+                                    + (sc.channel_slowmode * INTERVAL '1 second')
+                                    <= NOW()
+                            )
+                        )
+                    )
                     RETURNING id, channel_id, sender_id
+                ),
+
+                slowmode_insert AS (
+                    INSERT INTO channel_slowmode (
+                        user_id,
+                        channel_id,
+                        last_message_time
+                    )
+                    SELECT
+                        inserted.sender_id,
+                        inserted.channel_id,
+                        NOW()
+                    FROM inserted
+                    JOIN server_channels sc
+                        ON sc.id = inserted.channel_id
+                    WHERE sc.channel_slowmode IS NOT NULL
+                    ON CONFLICT (user_id, channel_id)
+                    DO UPDATE SET
+                        last_message_time = EXCLUDED.last_message_time
                 ),
 
                 mention_insert AS (
@@ -215,7 +257,9 @@ public class MessageHandler
                     AND sr.user_id = inserted.sender_id
                 JOIN server_channels sc2
                     ON sc2.server_id = sc.server_id
-                GROUP BY inserted.id, sc.server_id;
+                GROUP BY
+                    inserted.id,
+                    sc.server_id;
             ", conn, transaction);
 
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
