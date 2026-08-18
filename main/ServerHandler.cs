@@ -1180,49 +1180,55 @@ public class Server
 
     public async Task<Dictionary<string, List<string>>> GetServerInformation (Guid ServerId)
     {
-        await using var conn = await DBHandler.GetConnection();
-        await using var cmd = new NpgsqlCommand(@"
-            SELECT
-                (SELECT COUNT(*)
-                FROM server_members
-                WHERE server_id = @ServerId) AS member_count,
-                (SELECT array_agg(channel_name)
-                FROM server_channels
-                WHERE server_id = @ServerId) AS channel_names,
-                (SELECT COUNT(*)
-                FROM server_boosts
-                WHERE server_id = @ServerId) AS server_boost_count;
-        ", conn);
-
-        cmd.Parameters.AddWithValue("ServerId", ServerId);
-
-        await using var reader = await cmd.ExecuteReaderAsync();
-        var ServerInfo = new Dictionary<string, List<string>>();
-
-        if (!await reader.ReadAsync())
+        try
         {
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(@"
+                SELECT
+                    (SELECT COUNT(*)
+                    FROM server_members
+                    WHERE server_id = @ServerId) AS member_count,
+                    (SELECT array_agg(channel_name)
+                    FROM server_channels
+                    WHERE server_id = @ServerId) AS channel_names,
+                    (SELECT COUNT(*)
+                    FROM server_boosts
+                    WHERE server_id = @ServerId) AS server_boost_count;
+            ", conn);
+
+            cmd.Parameters.AddWithValue("ServerId", ServerId);
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+            var ServerInfo = new Dictionary<string, List<string>>();
+
+            if (!await reader.ReadAsync())
+            {
+                return ServerInfo;
+            }
+
+            var ServerMemberCount = reader.GetInt32(0);
+            var OnlineMemberCount = GetOnlineCountByServerId(ServerId);
+            var ServerChannels = reader.IsDBNull(1) ? Array.Empty<string>() : reader.GetFieldValue<string[]>(1);
+            var ServerBoostCount = reader.GetInt32(2);
+            var MemberCountList = new List<string>();
+            var OnlineMemberList = new List<string>();
+            var ServerChannelsList = new List<string>();
+            var ServerBoostList = new List<string>();
+
+            MemberCountList.Add(ServerMemberCount.ToString());
+            OnlineMemberList.Add(OnlineMemberCount.ToString());
+            ServerBoostList.Add(ServerBoostCount.ToString());
+
+            ServerInfo.Add("MemberCount", MemberCountList);
+            ServerInfo.Add("OnlineMemberCount", OnlineMemberList);
+            ServerInfo.Add("ServerChannels", ServerChannelsList);
+            ServerInfo.Add("ServerBoostCount", ServerBoostList);
+
             return ServerInfo;
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return new Dictionary<string, List<string>>();
         }
-
-        var ServerMemberCount = reader.GetInt32(0);
-        var OnlineMemberCount = GetOnlineCountByServerId(ServerId);
-        var ServerChannels = reader.IsDBNull(1) ? Array.Empty<string>() : reader.GetFieldValue<string[]>(1);
-        var ServerBoostCount = reader.GetInt32(2);
-        var MemberCountList = new List<string>();
-        var OnlineMemberList = new List<string>();
-        var ServerChannelsList = new List<string>();
-        var ServerBoostList = new List<string>();
-
-        MemberCountList.Add(ServerMemberCount.ToString());
-        OnlineMemberList.Add(OnlineMemberCount.ToString());
-        ServerBoostList.Add(ServerBoostCount.ToString());
-
-        ServerInfo.Add("MemberCount", MemberCountList);
-        ServerInfo.Add("OnlineMemberCount", OnlineMemberList);
-        ServerInfo.Add("ServerChannels", ServerChannelsList);
-        ServerInfo.Add("ServerBoostCount", ServerBoostList);
-
-        return ServerInfo;
     }
 
     public async Task<string> EnableServerTag (Guid ServerId, int ChangerId, int ServerTagImageId)

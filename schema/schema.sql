@@ -280,6 +280,17 @@ CREATE TABLE IF NOT EXISTS server_tag (
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS friends (
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    friend_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    PRIMARY KEY (user_id, friend_id),
+
+    CHECK (user_id < friend_id)
+);
+
 CREATE TABLE IF NOT EXISTS connections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

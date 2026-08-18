@@ -32,6 +32,7 @@ public class ProfileInfo
     public DateTime JoinDate {get; set;}
     public DateTime AccountCreated {get; set;}
     public int? MutualServers {get; set;}
+    public Dictionary<string, string> ConnectionsData {get; set;}
 }
 
 public class Notification
@@ -76,7 +77,12 @@ public class MainHandler
                 
                 SELECT storage_path 
                 FROM avatar_uploads
-                WHERE user_id = @id;"
+                WHERE user_id = @id;
+                
+                SELECT url, connection_type
+                FROM connections
+                WHERE user_id = @id AND visible = TRUE;
+                "
             : @"SELECT username, about_me, is_banned, created_at
                 FROM users
                 WHERE id = @id;
@@ -84,6 +90,10 @@ public class MainHandler
                 SELECT storage_path 
                 FROM avatar_uploads
                 WHERE user_id = @id;
+
+                SELECT url, connection_type
+                FROM connections
+                WHERE user_id = @id AND visible = TRUE;
 
                 SELECT
                     r.name,
@@ -126,6 +136,7 @@ public class MainHandler
         var Joined = DateTime.UtcNow;
         var JoinedDiscordia = DateTime.UtcNow;
         int? MutualServers = null;
+        var Connections = new Dictionary<string, string>();
 
         if (await Reader.ReadAsync()) {
             UserName = Reader.GetString(0);
@@ -138,6 +149,11 @@ public class MainHandler
                 if (await Reader.ReadAsync())
                 {
                     AvatarImage = Reader.IsDBNull(0) ? "" : Reader.GetString(0);
+                }
+
+                if (await Reader.NextResultAsync())
+                {
+                    Connections.TryAdd(Reader.GetString(1), Reader.GetString(0));
                 }
             
                 if (await Reader.NextResultAsync())
@@ -189,7 +205,8 @@ public class MainHandler
             RoleData = UserRoleData,
             JoinDate = Joined,
             AccountCreated = JoinedDiscordia,
-            MutualServers = MutualServers
+            MutualServers = MutualServers,
+            ConnectionsData = Connections
         };
 
         return ProfileInformation;
