@@ -35,7 +35,8 @@ public record Message (
     int sender_id,
     string? message_content,
     DateTime created_at,
-    bool edited
+    bool edited,
+    string Picture_Path
 );
 
 
@@ -643,66 +644,6 @@ public class Server
         }
     }
 
-
-    public async Task<List<Message>> SearchMessagesByWord(string? Search, Guid ChannelId, DateTime? cursorCreatedAt, Guid? cursorId)
-    {
-        try
-        {
-            if (Search == null) Search = "";
-
-            string SQL = cursorCreatedAt is null && cursorId is null
-                ? @"SELECT id, sender_id, message_content, created_at, edited
-                    FROM server_messages
-                    WHERE channel_id = @channel_id
-                    AND message_content LIKE CONCAT('%', @search, '%')
-                    ORDER BY created_at DESC, id DESC
-                    LIMIT 50;"
-                : @"SELECT id, sender_id, message_content, created_at, edited
-                    FROM server_messages
-                    WHERE channel_id = @channel_id
-                    AND message_content LIKE CONCAT('%', @search, '%')
-                    AND (created_at, id) < (@created_at, @id)
-                    ORDER BY created_at DESC, id DESC
-                    LIMIT 50;";
-
-            await using var conn = await DBHandler.GetConnection();
-            await using var cmd = new NpgsqlCommand(SQL,conn);
-            if (cursorCreatedAt != null && cursorId != null)
-            {
-                cmd.Parameters.AddWithValue("created_at", cursorCreatedAt);
-                cmd.Parameters.AddWithValue("id", cursorId);
-            }
-
-            cmd.Parameters.AddWithValue("channel_id", ChannelId);
-            cmd.Parameters.AddWithValue("search", Search);
-
-            await using var reader = await cmd.ExecuteReaderAsync();
-            var Messages = new List<Message>();
-            while (await reader.ReadAsync())
-            {
-                var id = reader.GetGuid(0);
-                var sender_id = reader.GetInt32(1);
-                var message_content = reader.GetString(2);
-                var created_at = reader.GetDateTime(3);
-                var edited = reader.GetBoolean(4);
-
-                Messages.Add(new Message
-                (
-                    id,
-                    sender_id,
-                    message_content,
-                    created_at,
-                    edited
-                ));
-            }
-
-            return Messages;
-        } catch (Exception error) {
-            Console.WriteLine(error);
-            return new List<Message>();
-        }
-    }
-
     public int GetOnlineCountByServerId (Guid ServerId)
     {
         return ServerIdUserIdConns.ServerIdUsers[ServerId.ToString()].Count;
@@ -1283,6 +1224,174 @@ public class Server
 
             return "Success";
         } catch (Exception error) {
+            Console.WriteLine(error);
+            return "Internal Server Error.";
+        }
+    }
+
+    public async Task<List<Message>> GetChatMessages (Guid ChannelId, bool InitGet, bool IsPrivateMessage, DateTime? LastCursor, Guid? LastMessageId)
+    {
+        try
+        {
+            var TableName = "server_messages";
+            if (IsPrivateMessage) TableName = "private_messages";
+
+            var Sql = InitGet == true ? $"""
+                SELECT id, sender_id, message_content, created_at, edited, picture_path
+                FROM {TableName}
+                WHERE channel_id = @ChannelId
+                ORDER BY created_at DESC, id DESC
+                LIMIT 50;
+            """ : $"""
+                SELECT *
+                FROM {TableName}
+                WHERE channel_id = @ChannelId
+                AND (
+                    created_at < @BeforeCreatedAt
+                    OR (
+                        created_at = @BeforeCreatedAt
+                        AND id < @BeforeId
+                    )
+                )
+                ORDER BY created_at DESC, id DESC
+                LIMIT 50;
+                """;
+
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(Sql, conn);
+
+            cmd.Parameters.AddWithValue("ChannelId", ChannelId);
+
+            if (LastCursor != null)
+            {
+                cmd.Parameters.AddWithValue("BeforeId", LastMessageId!);
+                cmd.Parameters.AddWithValue("BeforeCreatedAt", LastCursor);
+            }
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+
+            var Messages = new List<Message>();
+
+            while (await reader.ReadAsync())
+            {
+                var id = reader.GetGuid(0);
+                var sender_id = reader.GetInt32(1);
+                var message_content = reader.GetString(2);
+                var created_at = reader.GetDateTime(3);
+                var edited = reader.GetBoolean(4);
+                var Picture_Path = reader.GetString(5);
+
+                Messages.Add(new Message
+                (
+                    id,
+                    sender_id,
+                    message_content,
+                    created_at,
+                    edited,
+                    Picture_Path
+                ));
+            }
+
+            return Messages;
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return new List<Message>();
+        }
+    }
+
+    public async Task<List<Message>> SearchMessagesByWord (string? Search, Guid ChannelId, bool IsPrivateMessage, DateTime? cursorCreatedAt, Guid? cursorId)
+    {
+        try
+        {
+            var TableName = "server_messages";
+            if (IsPrivateMessage) TableName = "private_messages";
+            if (Search == null) Search = "";
+
+            string SQL = cursorCreatedAt is null && cursorId is null
+                ? $"""
+                    SELECT id, sender_id, message_content, created_at, edited, picture_path
+                    FROM {TableName}
+                    WHERE channel_id = @channel_id
+                    AND message_content LIKE CONCAT('%', @search, '%')
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 50;
+                    """
+                : $"""
+                    SELECT id, sender_id, message_content, created_at, edited, picture_path
+                    FROM {TableName}
+                    WHERE channel_id = @channel_id
+                    AND message_content LIKE CONCAT('%', @search, '%')
+                    AND (created_at, id) < (@created_at, @id)
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 50;
+                    """;
+
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(SQL,conn);
+            if (cursorCreatedAt != null && cursorId != null)
+            {
+                cmd.Parameters.AddWithValue("created_at", cursorCreatedAt);
+                cmd.Parameters.AddWithValue("id", cursorId);
+            }
+
+            cmd.Parameters.AddWithValue("channel_id", ChannelId);
+            cmd.Parameters.AddWithValue("search", Search);
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+            var Messages = new List<Message>();
+            while (await reader.ReadAsync())
+            {
+                var id = reader.GetGuid(0);
+                var sender_id = reader.GetInt32(1);
+                var message_content = reader.GetString(2);
+                var created_at = reader.GetDateTime(3);
+                var edited = reader.GetBoolean(4);
+                var Picture_Path = reader.GetString(5);
+
+                Messages.Add(new Message
+                (
+                    id,
+                    sender_id,
+                    message_content,
+                    created_at,
+                    edited,
+                    Picture_Path
+                ));
+            }
+
+            return Messages;
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return new List<Message>();
+        }
+    }
+
+    public async Task<string> CreateNewForumPost (string ForumTitle, Guid ChannelId, int UserId, Guid ServerId)
+    {
+        try
+        {
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand("""
+                INSERT INTO server_forum_data (server_id, user_id, channel_id, forum_title)
+                VALUES (@server_id, @user_id, @channel_id, @forum_title)
+                RETURNING id;
+            """, conn);
+
+            cmd.Parameters.AddWithValue("server_id", ServerId);
+            cmd.Parameters.AddWithValue("user_id", UserId);
+            cmd.Parameters.AddWithValue("channel_id", ChannelId);
+            cmd.Parameters.AddWithValue("forum_title", ForumTitle);
+
+            var Result = await cmd.ExecuteScalarAsync();
+
+            if (Result == null)
+            {
+                return "Failed to create new forum post, please try again later.";
+            }
+
+            return "Success";
+        } catch (Exception error) {
+            Console.WriteLine(error);
             return "Internal Server Error.";
         }
     }

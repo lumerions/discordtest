@@ -142,7 +142,7 @@ public class UsersHandler
 
             var NotificationType = Reader.GetString(0);
             var SenderId = Reader.GetInt32(1);
-            var WriteCmd = new NpgsqlCommand($"INSERT INTO friends (user_id, friend_id) VALUES (@UserId, @friend_id);", Conn, Transaction);
+            var WriteCmd = new NpgsqlCommand($"INSERT INTO friends (user_id, friend_id) VALUES (@UserId, @friend_id) RETURNING user_id;", Conn, Transaction);
             WriteCmd.Parameters.AddWithValue("UserId", UserId);
             WriteCmd.Parameters.AddWithValue("friend_id", SenderId);
             var WriteResult = await WriteCmd.ExecuteScalarAsync();
@@ -157,6 +157,30 @@ public class UsersHandler
         } catch (Exception err)
         {
             await Transaction.RollbackAsync();
+           return "Internal Server Error.";
+        }
+    }
+
+    public async Task<string> UnFriendUser (int UserId, int FriendId)
+    {
+        var Conn = await DBHandler.GetConnection();
+        await using var Transaction = await Conn.BeginTransactionAsync();
+
+        try
+        {
+            var WriteCmd = new NpgsqlCommand($"DELETE FROM friends WHERE user_id = @UserId RETURNING user_id;", Conn, Transaction);
+            WriteCmd.Parameters.AddWithValue("UserId", UserId);
+            WriteCmd.Parameters.AddWithValue("friend_id", FriendId);
+            var WriteResult = await WriteCmd.ExecuteScalarAsync();
+
+            if (WriteResult == null)
+            {
+                return "Failed to add friend, please try again.";
+            }
+            
+            return "Success";
+        } catch (Exception err)
+        {
            return "Internal Server Error.";
         }
     }

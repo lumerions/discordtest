@@ -132,11 +132,19 @@ CREATE TABLE IF NOT EXISTS server_channels (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
-    type VARCHAR(20) NOT NULL, -- 'text', 'voice', 'category'
+    type VARCHAR(20) NOT NULL, -- 'text', 'voice', 'category', 'forum'
     position INT NOT NULL DEFAULT 0,
     rules_channel BOOLEAN NOT NULL DEFAULT FALSE,
     channel_topic VARCHAR(100) DEFAULT '',
     channel_slowmode TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS server_forum_data (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    channel_id UUID NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
+    forum_title TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS channel_slowmode (
@@ -207,7 +215,6 @@ CREATE TABLE IF NOT EXISTS private_messages (
     message_content TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     edited BOOLEAN DEFAULT FALSE,
-    read_at TIMESTAMP DEFAULT NULL,
     picture_path TEXT
 );
 

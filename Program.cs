@@ -8,7 +8,6 @@ using Internal.Database;
 using Internal.Redis;
 using System.Threading.RateLimiting;
 using Internal.Shared;
-using Internal.Data;
 using Middleware.Csrf;
 using Middleware.Authenication;
 

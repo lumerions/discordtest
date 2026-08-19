@@ -9,6 +9,7 @@ using System.Net.WebSockets;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Options;
 
 namespace Internal.Main;
 
@@ -27,8 +28,9 @@ public class ProfileInfo
     public string Bio {get; set;} = "";
     public string ProfileName {get; set;} = "";
     public string AvatarImageUrl {get; set;} = "";
-
+    public List<int> MutualFriendData {get; set;}
     public List<RoleItem> RoleData {get; set;}
+    public List<Guid> MutualServerData {get; set;}
     public DateTime JoinDate {get; set;}
     public DateTime AccountCreated {get; set;}
     public int? MutualServers {get; set;}
@@ -82,6 +84,18 @@ public class MainHandler
                 SELECT url, connection_type
                 FROM connections
                 WHERE user_id = @id AND visible = TRUE;
+
+                SELECT server_id
+                FROM server_members
+                WHERE user_id = @id AND user_id = @id2;
+
+                SELECT
+                    CASE
+                        WHEN user_id = @UserId THEN friend_id
+                        ELSE user_id
+                    END AS friend_id
+                FROM friends
+                WHERE user_id = @UserId OR friend_id = @UserId;
                 "
             : @"SELECT username, about_me, is_banned, created_at
                 FROM users
@@ -94,6 +108,18 @@ public class MainHandler
                 SELECT url, connection_type
                 FROM connections
                 WHERE user_id = @id AND visible = TRUE;
+
+                SELECT server_id
+                FROM server_members
+                WHERE user_id = @id AND user_id = @id2;
+
+                SELECT
+                    CASE
+                        WHEN user_id = @id THEN friend_id
+                        ELSE user_id
+                    END AS friend_id
+                FROM friends
+                WHERE user_id = @id OR friend_id = @id;
 
                 SELECT
                     r.name,
@@ -110,10 +136,6 @@ public class MainHandler
                 SELECT joined_at
                 FROM server_members
                 WHERE server_id = @server_id AND user_id = @id;
-
-                SELECT 1
-                FROM server_members
-                WHERE user_id = @id AND user_id = @id2;
                 ";
 
         await using var conn = await DBHandler.GetConnection();
@@ -132,10 +154,13 @@ public class MainHandler
         var AboutMe = "";
         var Banned = true;
         var AvatarImage = "";
+        var MutualServerServerIds = new List<Guid>();
+        var MutualFriendIds = new List<int>();
         var UserRoleData = new List<RoleItem>();
         var Joined = DateTime.UtcNow;
         var JoinedDiscordia = DateTime.UtcNow;
         int? MutualServers = null;
+        int? MutualFriends = null;
         var Connections = new Dictionary<string, string>();
 
         if (await Reader.ReadAsync()) {
@@ -154,6 +179,28 @@ public class MainHandler
                 if (await Reader.NextResultAsync())
                 {
                     Connections.TryAdd(Reader.GetString(1), Reader.GetString(0));
+                }
+
+                if (await Reader.NextResultAsync())
+                {
+                    MutualServers = 0;
+                    if (await Reader.ReadAsync())
+                    {
+                        var ReaderServerId = Reader.GetGuid(0);
+                        MutualServers += 1;
+                        MutualServerServerIds.Add(ReaderServerId);
+                    }
+                }
+
+                if (await Reader.NextResultAsync())
+                {
+                    MutualFriends = 0;
+                    if (await Reader.ReadAsync())
+                    {
+                        var ReaderFriendId = Reader.GetInt32(0);
+                        MutualFriends += 1;
+                        MutualFriendIds.Add(ReaderFriendId);
+                    }
                 }
             
                 if (await Reader.NextResultAsync())
@@ -184,15 +231,6 @@ public class MainHandler
                         Joined = JoinedAt;
                     }
                 }
-
-                if (await Reader.NextResultAsync())
-                {
-                    MutualServers = 0;
-                    if (await Reader.ReadAsync())
-                    {
-                        MutualServers += 1;
-                    }
-                }
             }
         }
         
@@ -206,6 +244,8 @@ public class MainHandler
             JoinDate = Joined,
             AccountCreated = JoinedDiscordia,
             MutualServers = MutualServers,
+            MutualServerData = MutualServerServerIds,
+            MutualFriendData = MutualFriendIds,
             ConnectionsData = Connections
         };
 

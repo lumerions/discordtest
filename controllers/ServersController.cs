@@ -506,7 +506,7 @@ public class ServersController : BaseController
             return Unauthorized();
         }
 
-        if (ChannelType != "text" && ChannelType != "voice" && ChannelType != "category") 
+        if (ChannelType != "text" && ChannelType != "voice" && ChannelType != "category" && ChannelType != "forum") 
         {
             return BadRequest("Invalid channel type.");
         }
