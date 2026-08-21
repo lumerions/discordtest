@@ -39,18 +39,26 @@ public class UsersHandler
 
         await using var Transaction = await Conn.BeginTransactionAsync();
 
+        async Task DeleteFileData ()
+        {
+            var DeleteFile = new NpgsqlCommand($"DELETE FROM {TypeInfoValue} WHERE file_name = @file_name;", Conn, Transaction);
+            DeleteFile.Parameters.AddWithValue("file_name", FileName);
+            await DeleteFile.ExecuteNonQueryAsync();
+        }
+
         try
         {
             if (File.Exists(FileNamePath))
             {
                 File.Delete(FileNamePath);
-                var DeleteFile = new NpgsqlCommand($"DELETE FROM {TypeInfoValue} WHERE file_name = @file_name;", Conn, Transaction);
-                DeleteFile.Parameters.AddWithValue("file_name", FileName);
-                await DeleteFile.ExecuteNonQueryAsync();
-                await Transaction.CommitAsync();
+                await DeleteFileData();
                 return true;
+            } else
+            {
+                await DeleteFileData();
             }
 
+            await Transaction.CommitAsync();
             return false;
         } catch (Exception err)
         {
@@ -63,41 +71,42 @@ public class UsersHandler
     public async Task<bool> DeleteAllOldFiles (int UserId)
     {
         var Conn = await DBHandler.GetConnection();
-        var Cmd = new NpgsqlCommand($"SELECT file_name, created_at FROM avatar_uploads WHERE user_id = @user_id;", Conn);
+        var Cmd = new NpgsqlCommand($"""
+            SELECT file_name
+            FROM avatar_uploads
+            WHERE user_id = @user_id
+            ORDER BY created_at DESC
+            OFFSET 5;
+            """, Conn);
+
         Cmd.Parameters.AddWithValue("user_id", UserId);
-        var FileDateTimes = new Dictionary<string, DateTimeOffset>();
+
+        var FileNamesList = new List<string>();
         var AvatarUploadFolder = Path.Combine(Directory.GetCurrentDirectory(), "..", "controllers", "Avatar");
         var AvatarUploadFolderPath = Path.GetFullPath(AvatarUploadFolder);
+
         await using var Reader = await Cmd.ExecuteReaderAsync();
 
         while (await Reader.ReadAsync())
         {
             var Name = Reader.GetString(0);
-            var CreationDate = Reader.GetFieldValue<DateTimeOffset>(1);
             var Filename = Path.GetFileName(Name);
             var FileNamePath = Path.Combine(AvatarUploadFolderPath, Filename);
 
             if (File.Exists(FileNamePath))
             {
-                FileDateTimes.TryAdd(Filename, CreationDate);
+                FileNamesList.Add(Filename);
             }
         }
 
-        var MostRecentFiles = FileDateTimes.OrderByDescending(item => item.Value);
-        var ItemNumber = 0;
         bool success = true;
 
-        foreach (var (key, value) in MostRecentFiles)
+        foreach (var item in FileNamesList)
         {
-            if (ItemNumber >= 5)
+            if (!await DeleteImage(item, "avatar_uploads"))
             {
-                if (!await DeleteImage(key, "avatar_uploads"))
-                {
-                    success = false;
-                }
+                success = false;
             }
-
-            ItemNumber += 1;
         }
         
         return success;
@@ -137,11 +146,13 @@ public class UsersHandler
 
             if (!await Reader.ReadAsync())
             {
+                await Transaction.RollbackAsync();
                 return "Notification not found.";
             }
 
             var NotificationType = Reader.GetString(0);
             var SenderId = Reader.GetInt32(1);
+            await Reader.DisposeAsync();
             var WriteCmd = new NpgsqlCommand($"INSERT INTO friends (user_id, friend_id) VALUES (@UserId, @friend_id) RETURNING user_id;", Conn, Transaction);
             WriteCmd.Parameters.AddWithValue("UserId", UserId);
             WriteCmd.Parameters.AddWithValue("friend_id", SenderId);
@@ -149,6 +160,7 @@ public class UsersHandler
 
             if (WriteResult == null)
             {
+                await Transaction.RollbackAsync();
                 return "Failed to add friend, please try again.";
             }
             
@@ -164,11 +176,18 @@ public class UsersHandler
     public async Task<string> UnFriendUser (int UserId, int FriendId)
     {
         var Conn = await DBHandler.GetConnection();
-        await using var Transaction = await Conn.BeginTransactionAsync();
 
         try
         {
-            var WriteCmd = new NpgsqlCommand($"DELETE FROM friends WHERE user_id = @UserId RETURNING user_id;", Conn, Transaction);
+            var WriteCmd = new NpgsqlCommand(
+                $"""
+                DELETE FROM friends
+                WHERE user_id = @UserId
+                AND friend_id = @FriendId
+                RETURNING user_id;
+                """
+            , Conn);
+
             WriteCmd.Parameters.AddWithValue("UserId", UserId);
             WriteCmd.Parameters.AddWithValue("friend_id", FriendId);
             var WriteResult = await WriteCmd.ExecuteScalarAsync();
@@ -193,11 +212,12 @@ public class UsersHandler
         {
             var Conn = await DBHandler.GetConnection();
             var Cmd = new NpgsqlCommand($"""
-                SELECT
+            SELECT
                 CASE
                     WHEN user_id = @UserId THEN friend_id
                     ELSE user_id
-                END AS friend_id
+                END AS friend_id,
+                created_at
             FROM friends
             WHERE user_id = @UserId OR friend_id = @UserId;
             """, Conn);

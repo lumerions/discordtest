@@ -39,7 +39,6 @@ public record Message (
     string Picture_Path
 );
 
-
 public class Server
 {
     private readonly SharedMethods.WebSocketSessionManager Manager;
@@ -47,6 +46,14 @@ public class Server
     private readonly DatabaseHandler DBHandler;
     private readonly MessageHandler MsgHandler;
     private readonly SharedMethods.ServerIdUserIdConnections ServerIdUserIdConns;
+    private readonly static HashSet<string> AllowedColumns = new (StringComparer.OrdinalIgnoreCase) {
+        "rules_channel",
+        "channel_topic",
+        "position",
+        "type",
+        "name",
+    };
+    
     public Server (SharedMethods.ServerIdUserIdConnections ServerIdUserIdConns_, DatabaseHandler handler_, MessageHandler MsgHandler_, SharedMethods.WebSocketSessionManager manager)
     {
         DBHandler = handler_;
@@ -271,7 +278,7 @@ public class Server
             await using var conn = await DBHandler.GetConnection();
             string SQL = PermissionsCheck == false || PermissionsCheck == null
                 ? @"
-                    SELECT id
+                    SELECT id, type
                     FROM server_channels
                     WHERE server_id = @server_id;
                 "
@@ -307,9 +314,12 @@ public class Server
 
             while (await reader.ReadAsync())
             {
-                var DiscordChannelId = reader.GetGuid(0);
-                var RedisKey = $"channels:{DiscordChannelId.ToString()}";
-                Data.TryAdd(RedisKey, "");
+                var ChannelType = reader.GetString(0);
+                var DiscordChannelId = reader.GetGuid(1);
+                var IsForumChannel = ChannelType == "forum";
+               // var RedisKey = $"channels:{DiscordChannelId.ToString()}";
+              //  Data.TryAdd(RedisKey, "");
+                Data.TryAdd("ChannelInfo", DiscordChannelId.ToString() + ";" + IsForumChannel.ToString());
             }
 
             return Data;
@@ -611,13 +621,14 @@ public class Server
 
     public async Task<List<Role>> ViewRolesById(Guid ServerId, int ViewRoleId)
     {
+        var Roles = new List<Role>();
+
         try
         {
             await using var conn = await DBHandler.GetConnection();
             await using var cmd = new NpgsqlCommand(@"SELECT id, name, color, position, separated FROM server_roles WHERE server_id = @server_id",conn);
             cmd.Parameters.AddWithValue("server_id", ServerId);
             await using var reader = await cmd.ExecuteReaderAsync();
-            var Roles = new List<Role>();
             while (await reader.ReadAsync())
             {
                 var RoleId = reader.GetGuid(0);
@@ -640,7 +651,7 @@ public class Server
             return HighestPositionRoles;
         } catch (Exception error) {
             Console.WriteLine(error);
-            return new List<Role>();
+            return Roles;
         }
     }
 
@@ -872,7 +883,13 @@ public class Server
                 SELECT 
                     SCW.channel_id,
                     SC.server_id,
-                    SCW.sender_id
+                    SCW.sender_id,
+                    COALESCE((
+                        SELECT bit_or(SR.permissions)
+                        FROM server_roles AS SR
+                        WHERE SR.user_id = @user_id
+                        AND SR.server_id = SC.server_id
+                    ), 0) AS effective_permissions
                 FROM {TableName} AS SCW
                 JOIN server_channels AS SC
                     ON SCW.channel_id = SC.id
@@ -891,6 +908,7 @@ public class Server
             var ChannelId = reader.GetGuid(0);
             var ServerId = reader.GetGuid(1);
             var SenderId = reader.GetInt32(2);
+            var PermissionsNumber = reader.GetInt64(3);
 
             await reader.DisposeAsync();
 
@@ -898,7 +916,6 @@ public class Server
             {
                 if (SenderId != DeleterId)
                 {
-                    var PermissionsNumber = await GetPermissionNumber(ServerId, DeleterId);
                     var Perm = (Permissions) PermissionsNumber;
                     var CanDeleteMessages = (Perm & Permissions.ManageMessages) != 0;
 
@@ -968,14 +985,6 @@ public class Server
     public async Task<bool> UpdateChannelInfo (string Column, string Value, Guid ServerId)
     {
         object DBValue = null;
-        var AllowedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "rules_channel",
-            "channel_topic",
-            "position",
-            "type",
-            "name",
-        };
 
         if (!AllowedColumns.Contains(Column))
         {
@@ -1121,6 +1130,8 @@ public class Server
 
     public async Task<Dictionary<string, List<string>>> GetServerInformation (Guid ServerId)
     {
+        var ServerInfo = new Dictionary<string, List<string>>();
+
         try
         {
             await using var conn = await DBHandler.GetConnection();
@@ -1140,7 +1151,6 @@ public class Server
             cmd.Parameters.AddWithValue("ServerId", ServerId);
 
             await using var reader = await cmd.ExecuteReaderAsync();
-            var ServerInfo = new Dictionary<string, List<string>>();
 
             if (!await reader.ReadAsync())
             {
@@ -1168,7 +1178,7 @@ public class Server
             return ServerInfo;
         } catch (Exception error) {
             Console.WriteLine(error);
-            return new Dictionary<string, List<string>>();
+            return ServerInfo;
         }
     }
 
@@ -1229,12 +1239,26 @@ public class Server
         }
     }
 
-    public async Task<List<Message>> GetChatMessages (Guid ChannelId, bool InitGet, bool IsPrivateMessage, DateTime? LastCursor, Guid? LastMessageId)
+    public async Task<List<Message>> GetChatMessages (Guid ChannelId, Guid ServerId, int ViewId, bool InitGet, bool IsPrivateMessage, DateTime? LastCursor, Guid? LastMessageId)
     {
+        var Messages = new List<Message>();
+
         try
         {
             var TableName = "server_messages";
             if (IsPrivateMessage) TableName = "private_messages";
+
+            if (!IsPrivateMessage)
+            {
+                var PermissionsNumber = await GetPermissionNumber(ServerId, ViewId);
+                var Perm = (Permissions) PermissionsNumber;
+                var CanViewMsgHistory = (Perm & Permissions.ReadMessageHistory) != 0;
+                // this can be way more optimized but its fine for now 
+                if (!CanViewMsgHistory)
+                {
+                    return Messages;
+                }
+            }
 
             var Sql = InitGet == true ? $"""
                 SELECT id, sender_id, message_content, created_at, edited, picture_path
@@ -1270,8 +1294,6 @@ public class Server
 
             await using var reader = await cmd.ExecuteReaderAsync();
 
-            var Messages = new List<Message>();
-
             while (await reader.ReadAsync())
             {
                 var id = reader.GetGuid(0);
@@ -1295,17 +1317,31 @@ public class Server
             return Messages;
         } catch (Exception error) {
             Console.WriteLine(error);
-            return new List<Message>();
+            return Messages;
         }
     }
 
-    public async Task<List<Message>> SearchMessagesByWord (string? Search, Guid ChannelId, bool IsPrivateMessage, DateTime? cursorCreatedAt, Guid? cursorId)
+    public async Task<List<Message>> SearchMessagesByWord (string? Search, int ViewId, Guid ServerId, Guid ChannelId, bool IsPrivateMessage, DateTime? cursorCreatedAt, Guid? cursorId)
     {
+        var Messages = new List<Message>();
+
         try
         {
             var TableName = "server_messages";
             if (IsPrivateMessage) TableName = "private_messages";
             if (Search == null) Search = "";
+
+            if (!IsPrivateMessage)
+            {
+                var PermissionsNumber = await GetPermissionNumber(ServerId, ViewId);
+                var Perm = (Permissions) PermissionsNumber;
+                var CanViewMsgHistory = (Perm & Permissions.ReadMessageHistory) != 0;
+                
+                if (!CanViewMsgHistory)
+                {
+                    return Messages;
+                }
+            }
 
             string SQL = cursorCreatedAt is null && cursorId is null
                 ? $"""
@@ -1338,7 +1374,7 @@ public class Server
             cmd.Parameters.AddWithValue("search", Search);
 
             await using var reader = await cmd.ExecuteReaderAsync();
-            var Messages = new List<Message>();
+
             while (await reader.ReadAsync())
             {
                 var id = reader.GetGuid(0);
@@ -1362,7 +1398,7 @@ public class Server
             return Messages;
         } catch (Exception error) {
             Console.WriteLine(error);
-            return new List<Message>();
+            return Messages;
         }
     }
 

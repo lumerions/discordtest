@@ -382,13 +382,20 @@ public class MainHandler
 
         await using var conn = await DBHandler.GetConnection();
 
-        if (YoutubeName == "no" && AccessToken == "no" && RefreshToken == "no" && Url == "no")
-        {
-            await using var cmd = new NpgsqlCommand($"""
+        var UpdateSQL = YoutubeName == "no" && AccessToken == "no" && RefreshToken == "no" && Url == "no" ? """
             UPDATE connections
             SET visible = {Visible}
             WHERE connection_type = @connection_type AND user_id = @user_id;
-            """, conn);
+        """ : """ 
+            INSERT INTO connections
+                (user_id, name, url, connection_type, is_active, refresh_token, access_token)
+            VALUES
+                (@user_id, @name, @url, @connection_type, @is_active, @refresh_token, @access_token)
+        """;
+
+        if (YoutubeName == "no" && AccessToken == "no" && RefreshToken == "no" && Url == "no")
+        {
+            await using var cmd = new NpgsqlCommand(UpdateSQL, conn);
 
             cmd.Parameters.AddWithValue("user_id", UserId);
             cmd.Parameters.AddWithValue("connection_type", "youtube");
@@ -396,12 +403,7 @@ public class MainHandler
             await cmd.ExecuteNonQueryAsync();
         } else
         {
-            await using var cmd = new NpgsqlCommand("""
-            INSERT INTO connections
-                (user_id, name, url, connection_type, is_active, refresh_token, access_token)
-            VALUES
-                (@user_id, @name, @url, @connection_type, @is_active, @refresh_token, @access_token)
-            """, conn);
+            await using var cmd = new NpgsqlCommand(UpdateSQL, conn);
 
             cmd.Parameters.AddWithValue("user_id", UserId);
             cmd.Parameters.AddWithValue("name", YoutubeName);
