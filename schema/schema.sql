@@ -198,6 +198,28 @@ CREATE TABLE IF NOT EXISTS server_mutes (
     UNIQUE (server_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS channel_reads (
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    channel_id UUID NOT NULL,
+    last_read_message_id UUID NULL,
+    last_read_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, channel_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
+    FOREIGN KEY (last_read_message_id) REFERENCES server_messages(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS private_message_reads (
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    conversation_id UUID NOT NULL,
+    last_read_message_id UUID NULL,
+    last_read_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, conversation_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (conversation_id) REFERENCES private_conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (last_read_message_id) REFERENCES private_messages(id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS server_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     channel_id UUID NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,

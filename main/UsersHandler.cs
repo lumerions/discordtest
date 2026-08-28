@@ -129,6 +129,7 @@ public class UsersHandler
             return "Success";
         } catch (Exception err)
         {
+           Console.WriteLine(err);
            return "Internal Server Error.";
         }
     }
@@ -168,7 +169,8 @@ public class UsersHandler
             return "Success";
         } catch (Exception err)
         {
-            await Transaction.RollbackAsync();
+           Console.WriteLine(err);
+           await Transaction.RollbackAsync();
            return "Internal Server Error.";
         }
     }
@@ -200,6 +202,7 @@ public class UsersHandler
             return "Success";
         } catch (Exception err)
         {
+           Console.WriteLine(err);
            return "Internal Server Error.";
         }
     }
@@ -236,7 +239,8 @@ public class UsersHandler
             return FriendData;
         } catch (Exception err)
         {
-            FriendData.Add("error", DateTimeOffset.UtcNow);
+           Console.WriteLine(err);
+           FriendData.Add("error", DateTimeOffset.UtcNow);
            return FriendData;
         }
     }

@@ -3,7 +3,7 @@ namespace Internal.Roles;
 [Flags]
 public enum Permissions : long
 {
-    None = 0,
+    None = 0L,
     ViewChannel          = 1L << 0,
     SendMessages         = 1L << 1,
     SendTtsMessages      = 1L << 2,

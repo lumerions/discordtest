@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
-using StackExchange.Redis;
 using System.Net.WebSockets;
-using Internal.Redis;
 using System.Text;
 
 namespace Internal.Shared;
@@ -34,13 +32,11 @@ public class SharedMethods
         {"Reaction", "reaction_uploads"}
     };
     private readonly WebSocketSessionManager Manager;
-    private readonly IDatabase RedisDatabase;
     private readonly WebSocketChannelIdConnections websocketconns_;
 
-    public SharedMethods(WebSocketSessionManager manager, RedisHandler redis_, WebSocketChannelIdConnections  websocketconns)
+    public SharedMethods(WebSocketSessionManager manager, WebSocketChannelIdConnections  websocketconns)
     {
         Manager = manager;
-        RedisDatabase = redis_.GetRedisDatabase();
         websocketconns_ = websocketconns;
     }
 

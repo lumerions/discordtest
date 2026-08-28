@@ -133,7 +133,7 @@ public class ServersController : BaseController
         }
         
         string PermissionString = PermissionInfo.GetValueOrDefault("Permissions");
-        long PermissionNumber = long.Parse(PermissionString);
+        long PermissionNumber = long.Parse(PermissionString!);
         var Perm = (Permissions) PermissionNumber;
 
         return (Perm, true, PermissionInfo);
@@ -561,26 +561,24 @@ public class ServersController : BaseController
             return Unauthorized();
         }
 
-        if (int.TryParse(UserId, out var IdValue))
+
+        var PermissionResult = await GetPerm(ServerId, Id, true);
+        var Perm = PermissionResult.Perm;
+        
+        if (Perm == null) 
+        { 
+            return BadRequest();
+        }
+
+        var CanInviteUsers = (Perm & Permissions.CreateInvites) != 0;
+
+        if (!CanInviteUsers)
         {
-            var PermissionResult = await GetPerm(ServerId, IdValue, true);
-            var Perm = PermissionResult.Perm;
-          
-            if (Perm == null) 
-            { 
-                return BadRequest();
-            }
-
-            var CanInviteUsers = (Perm & Permissions.CreateInvites) != 0;
-
-            if (!CanInviteUsers)
-            {
-                return Unauthorized();
-            }
-            
-            await ServerHandler.CreateNewServerInvite(ServerId, IdValue, MaxUses, ChannelId, Expiration);
+            return Unauthorized();
         }
         
+        await ServerHandler.CreateNewServerInvite(ServerId, Id, MaxUses, ChannelId, Expiration);
+    
         return Ok(new
         {
             success = true

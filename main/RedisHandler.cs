@@ -1,6 +1,7 @@
 using StackExchange.Redis;
 
 namespace Internal.Redis;
+
 public class RedisHandler
 {
     public ConnectionMultiplexer redis_;

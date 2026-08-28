@@ -6,6 +6,7 @@ using Internal.Messages;
 using Internal.Roles;
 using Internal.Shared;
 using Internal.Database;
+using Internal.Redis;
 using Npgsql;
 using System.Text.Json;
 using System.Data;
@@ -33,16 +34,23 @@ public record Role (
 public record Message (
     Guid id,
     int sender_id,
-    string? message_content,
+    string message_content,
     DateTime created_at,
     bool edited,
     string Picture_Path
 );
 
+public class ChannelInformation
+{
+    public Guid ChannelId {get; set;}
+    public string ChannelType {get; set;}
+    public bool IsUnread {get; set;}
+}
+
 public class Server
 {
     private readonly SharedMethods.WebSocketSessionManager Manager;
-
+    private readonly RedisHandler RedisHandler_;
     private readonly DatabaseHandler DBHandler;
     private readonly MessageHandler MsgHandler;
     private readonly SharedMethods.ServerIdUserIdConnections ServerIdUserIdConns;
@@ -54,8 +62,9 @@ public class Server
         "name",
     };
     
-    public Server (SharedMethods.ServerIdUserIdConnections ServerIdUserIdConns_, DatabaseHandler handler_, MessageHandler MsgHandler_, SharedMethods.WebSocketSessionManager manager)
+    public Server (RedisHandler RedisHandler__, SharedMethods.ServerIdUserIdConnections ServerIdUserIdConns_, DatabaseHandler handler_, MessageHandler MsgHandler_, SharedMethods.WebSocketSessionManager manager)
     {
+        RedisHandler_ = RedisHandler__;
         DBHandler = handler_;
         MsgHandler = MsgHandler_;
         Manager = manager;
@@ -129,7 +138,7 @@ public class Server
                         id
                     FROM new_channels
                     WHERE name = 'general'
-                )
+                ),
                 new_server_automod AS (
                     INSERT INTO server_automod (server_id)
                     SELECT
@@ -159,7 +168,7 @@ public class Server
             cmd.Parameters.AddWithValue("name", RoleName);
             cmd.Parameters.AddWithValue("color", Color);
             cmd.Parameters.AddWithValue("position", Position);
-            cmd.Parameters.AddWithValue("seperated", Separated);
+            cmd.Parameters.AddWithValue("separated", Separated);
             cmd.Parameters.AddWithValue("permissions", Permissions);
             var result = await cmd.ExecuteScalarAsync();
             return result != null && result != DBNull.Value;
@@ -180,7 +189,7 @@ public class Server
                 WHERE user_id = @user_id
                 AND server_id = @server_id;
 
-                SELECT is_revoked
+                SELECT is_revoked, id
                 FROM server_invites
                 WHERE id = @InviteCode
                 AND (expires_at IS NULL OR expires_at > NOW())
@@ -196,6 +205,8 @@ public class Server
             IsBannedCommand.Parameters.AddWithValue("InviteCode", InviteCode);
             await using var reader = await IsBannedCommand.ExecuteReaderAsync();
 
+            var InviteId = Guid.Empty;
+
             if (await reader.ReadAsync())
             {
                 var banNote = reader.GetString(0);
@@ -210,6 +221,7 @@ public class Server
                 }
 
                 var isRevoked = reader.GetBoolean(0);
+                InviteId = reader.GetGuid(1);
 
                 if (isRevoked )
                 {
@@ -225,25 +237,36 @@ public class Server
                     if (await reader.ReadAsync())
                     {
                         await using var joinServerCommand = new NpgsqlCommand(@"
-                            INSERT INTO server_members (
-                                server_id,
-                                user_id,
-                                nickname
+                            WITH server_members_write AS (
+                                INSERT INTO server_members (
+                                    server_id,
+                                    user_id,
+                                    nickname
+                                )
+                                VALUES (
+                                    @server_id,
+                                    @user_id,
+                                    @nickname
+                                )
+                                RETURNING joined_at
+                            ),
+                            uses_update AS (
+                                UPDATE server_invites
+                                SET uses = uses + 1
+                                WHERE id = @InviteId
                             )
-                            VALUES (
-                                @server_id,
-                                @user_id,
-                                @nickname
-                            )
-                            RETURNING joined_at;
+                            SELECT server_members_write.joined_at
+                            FROM server_members_write;
                         ", conn, transaction);
 
                         Func<string, string> WelcomeUser = userName => $"Welcome {userName} to the server!";
                         var SystemChannelId = reader.GetGuid(0);
 
                         joinServerCommand.Parameters.AddWithValue("user_id", JoinerId);
+                        joinServerCommand.Parameters.AddWithValue("user_id", JoinerId);
                         joinServerCommand.Parameters.AddWithValue("server_id", ServerId);
                         joinServerCommand.Parameters.AddWithValue("nickname", JoinerUsername);
+                        await reader.DisposeAsync();
                         var result = await joinServerCommand.ExecuteScalarAsync();
                         var success = result != null && result != DBNull.Value;
                         var returnMessage = success ? "Joined Server Successfully." : "Could not join server please try again later.";
@@ -273,14 +296,38 @@ public class Server
 
     public async Task<Dictionary<string, string>> GetChannelIdsByServerId(Guid ServerId, int? UserId, bool? PermissionsCheck)
     {
+        var Data = new Dictionary<string, string>();
+
         try
         {
             await using var conn = await DBHandler.GetConnection();
             string SQL = PermissionsCheck == false || PermissionsCheck == null
                 ? @"
-                    SELECT id, type
-                    FROM server_channels
-                    WHERE server_id = @server_id;
+                    SELECT
+                        c.id,
+                        c.type,
+                        CASE
+                            WHEN latest.id IS NULL THEN FALSE
+                            WHEN cr.last_read_message_id IS NULL THEN TRUE
+                            WHEN latest.created_at > read_msg.created_at THEN TRUE
+                            WHEN latest.created_at = read_msg.created_at
+                                AND latest.id <> read_msg.id THEN TRUE
+                            ELSE FALSE
+                        END AS is_unread
+                    FROM server_channels c
+                    LEFT JOIN channel_reads cr
+                        ON cr.channel_id = c.id
+                        AND cr.user_id = @user_id
+                    LEFT JOIN server_messages read_msg
+                        ON read_msg.id = cr.last_read_message_id
+                    LEFT JOIN LATERAL (
+                        SELECT id, created_at
+                        FROM server_messages
+                        WHERE channel_id = c.id
+                        ORDER BY created_at DESC, id DESC
+                        LIMIT 1
+                    ) latest ON TRUE
+                    WHERE c.server_id = @server_id;
                 "
                 : @"
                     SELECT bit_or(permissions) AS effective_permissions
@@ -288,10 +335,33 @@ public class Server
                     WHERE user_id = @user_id
                     AND server_id = @server_id;
 
-                    SELECT id
-                    FROM server_channels
-                    WHERE server_id = @server_id;
+                    SELECT
+                        c.id,
+                        c.type,
+                        CASE
+                            WHEN latest.id IS NULL THEN FALSE
+                            WHEN cr.last_read_message_id IS NULL THEN TRUE
+                            WHEN latest.created_at > read_msg.created_at THEN TRUE
+                            WHEN latest.created_at = read_msg.created_at
+                                AND latest.id <> read_msg.id THEN TRUE
+                            ELSE FALSE
+                        END AS is_unread
+                    FROM server_channels c
+                    LEFT JOIN channel_reads cr
+                        ON cr.channel_id = c.id
+                        AND cr.user_id = @user_id
+                    LEFT JOIN server_messages read_msg
+                        ON read_msg.id = cr.last_read_message_id
+                    LEFT JOIN LATERAL (
+                        SELECT id, created_at
+                        FROM server_messages
+                        WHERE channel_id = c.id
+                        ORDER BY created_at DESC, id DESC
+                        LIMIT 1
+                    ) latest ON TRUE
+                    WHERE c.server_id = @server_id;
                 ";
+
             await using var getChannelIds = new NpgsqlCommand(SQL, conn);
 
             if (PermissionsCheck == true)
@@ -301,7 +371,6 @@ public class Server
 
             getChannelIds.Parameters.AddWithValue("server_id", ServerId);
             await using var reader = await getChannelIds.ExecuteReaderAsync();
-            var Data = new Dictionary<string, string>();
 
             if (PermissionsCheck == true)
             {
@@ -310,22 +379,31 @@ public class Server
                     var PermissionsNumber = reader.GetInt64(0);
                     Data.TryAdd("Permissions", PermissionsNumber.ToString());
                 }
+
+                await reader.NextResultAsync();
             }
 
             while (await reader.ReadAsync())
             {
-                var ChannelType = reader.GetString(0);
-                var DiscordChannelId = reader.GetGuid(1);
+                var DiscordChannelId = reader.GetGuid(0);
+                var ChannelType = reader.GetString(1);
+                var IsUnread = reader.GetBoolean(2);
                 var IsForumChannel = ChannelType == "forum";
                // var RedisKey = $"channels:{DiscordChannelId.ToString()}";
               //  Data.TryAdd(RedisKey, "");
-                Data.TryAdd("ChannelInfo", DiscordChannelId.ToString() + ";" + IsForumChannel.ToString());
+                var ChannelInfo = JsonSerializer.Serialize(new ChannelInformation
+                {
+                    ChannelId = DiscordChannelId,
+                    ChannelType = ChannelType,
+                    IsUnread = IsUnread
+                });
+                Data.TryAdd(DiscordChannelId.ToString(), ChannelInfo);
             }
 
             return Data;
         } catch (Exception error) {
             Console.WriteLine(error);
-            return new Dictionary<string, string>();
+            return Data;
         }
     }
 
@@ -437,6 +515,15 @@ public class Server
     {
         try
         {
+            var RedisDb = RedisHandler_.GetRedisDatabase();
+
+            string? CachedId = await RedisDb.StringGetAsync(Username);
+
+            if (int.TryParse(CachedId, out var CachedUserId))
+            {
+                return CachedUserId;
+            }
+
             await using var conn = await DBHandler.GetConnection();
             await using var cmd = new NpgsqlCommand(@"SELECT id FROM users WHERE username = @username;",conn);
             cmd.Parameters.AddWithValue("username", Username);
@@ -447,7 +534,11 @@ public class Server
                 return 0;
             }
 
-            return reader.GetInt32(0);
+            var UserId = reader.GetInt32(0);
+
+            await RedisDb.StringSetAsync(Username, UserId.ToString(), TimeSpan.FromDays(10));
+
+            return UserId;
         } catch (Exception error) {
             Console.WriteLine(error);
             return 0;
@@ -657,7 +748,7 @@ public class Server
 
     public int GetOnlineCountByServerId (Guid ServerId)
     {
-        return ServerIdUserIdConns.ServerIdUsers[ServerId.ToString()].Count;
+        return ServerIdUserIdConns.ServerIdUsers.TryGetValue(ServerId.ToString(), out var Users) ? Users.Count : 0;
     }
 
     public async Task<Dictionary<string, string>> GetServerInfoByInvite (Guid InviteCode)
@@ -699,7 +790,6 @@ public class Server
         ServerInfo.Add("OnlineMemberCount", OnlineMemberCount.ToString());
         ServerInfo.Add("MemberCount", MemberCount.ToString());
         ServerInfo.Add("IsRevoked", IsRevoked.ToString());
-        ServerInfo.Add("OnlineMemberCount", OnlineMemberCount.ToString());
 
         return ServerInfo;
     }
@@ -742,7 +832,7 @@ public class Server
 
         await using var conn = await DBHandler.GetConnection();
         await using var cmd = new NpgsqlCommand(@"
-            UPDATE server_channels_webhooks SET channel_id = @channel_id WHERE id = @id;
+            UPDATE server_channels_webhooks SET channel_id = @channel_id WHERE id = @id RETURNING id;
         ", conn);
 
         cmd.Parameters.AddWithValue("id", WebhookId);
@@ -772,7 +862,8 @@ public class Server
         await using var conn = await DBHandler.GetConnection();
         await using var cmd = new NpgsqlCommand(@"
             INSERT INTO server_channels_webhooks (creator_id, channel_id) 
-            VALUES (@ChangerUserId, @ServerId);
+            VALUES (@ChangerUserId, @ChannelId)
+            RETURNING id;
         ", conn);
 
         cmd.Parameters.AddWithValue("ChannelId", ChannelId);
@@ -958,11 +1049,11 @@ public class Server
             return await DBHandler.ExecuteAsync($"""
                 UPDATE server_automod
                 SET 
-                    automod_custom_words_rule_name = @automod_custom_words_rule_name
-                    automod_word_violation_response = @automod_word_violation_response
-                    block_custom_words = @block_custom_words
-                    custom_phrases_words_allowed = @custom_phrases_words_allowed
-                    custom_words_list = @custom_words_list
+                    automod_custom_words_rule_name = @automod_custom_words_rule_name,
+                    automod_word_violation_response = @automod_word_violation_response,
+                    block_custom_words = @block_custom_words,
+                    custom_phrases_words_allowed = @custom_phrases_words_allowed,
+                    custom_words_list = @custom_words_list,
                     automod_channels_role_ids_bypass = @bypass::jsonb
                 WHERE server_id = @server_id
 
@@ -1038,7 +1129,7 @@ public class Server
                 var Perm = (Permissions) PermissionsNumber;
                 var CanPinMessages = (Perm & Permissions.PinnedMessages) != 0;
 
-                if (CanPinMessages)
+                if (!CanPinMessages)
                 {
                     return false;
                 }
@@ -1170,6 +1261,11 @@ public class Server
             OnlineMemberList.Add(OnlineMemberCount.ToString());
             ServerBoostList.Add(ServerBoostCount.ToString());
 
+            foreach (var item in ServerChannels)
+            {
+                ServerChannelsList.Add(item);
+            }
+
             ServerInfo.Add("MemberCount", MemberCountList);
             ServerInfo.Add("OnlineMemberCount", OnlineMemberList);
             ServerInfo.Add("ServerChannels", ServerChannelsList);
@@ -1266,7 +1362,27 @@ public class Server
                 WHERE channel_id = @ChannelId
                 ORDER BY created_at DESC, id DESC
                 LIMIT 50;
-            """ : $"""
+
+                INSERT INTO channel_reads (
+                    user_id,
+                    channel_id,
+                    last_read_message_id,
+                    last_read_at
+                )
+                SELECT
+                    @UserId,
+                    @ChannelId,
+                    id,
+                    NOW()
+                FROM {TableName}
+                WHERE channel_id = @ChannelId
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                ON CONFLICT (user_id, channel_id)
+                DO UPDATE SET
+                    last_read_message_id = EXCLUDED.last_read_message_id,
+                    last_read_at = NOW();
+                """ : $"""
                 SELECT *
                 FROM {TableName}
                 WHERE channel_id = @ChannelId
@@ -1298,7 +1414,7 @@ public class Server
             {
                 var id = reader.GetGuid(0);
                 var sender_id = reader.GetInt32(1);
-                var message_content = reader.GetString(2);
+                var message_content = reader.IsDBNull(2) ? "" : reader.GetString(2);
                 var created_at = reader.GetDateTime(3);
                 var edited = reader.GetBoolean(4);
                 var Picture_Path = reader.GetString(5);
@@ -1379,7 +1495,7 @@ public class Server
             {
                 var id = reader.GetGuid(0);
                 var sender_id = reader.GetInt32(1);
-                var message_content = reader.GetString(2);
+                var message_content = reader.IsDBNull(2) ? "" : reader.GetString(2);
                 var created_at = reader.GetDateTime(3);
                 var edited = reader.GetBoolean(4);
                 var Picture_Path = reader.GetString(5);
