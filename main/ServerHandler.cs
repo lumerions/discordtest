@@ -942,7 +942,7 @@ public class Server
                     @message_id,
                     @reaction_id,
                     @user_id
-                )
+                );
                 """, cmd =>
                 {
                     cmd.Parameters.AddWithValue("message_id", MessageId);
@@ -952,6 +952,73 @@ public class Server
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
+        }
+    }
+
+    public async Task<bool> DeleteMessageReaction (bool PrivateMessage, Guid MessageId, Guid ReactionId, int ReacterId)
+    {
+        string TableName = "";
+
+        if (PrivateMessage) {
+            TableName = "private_message_reactions";
+        } else
+        {
+            TableName = "server_message_reactions";
+        }
+
+        await using var conn = await DBHandler.GetConnection();
+
+        try
+        {
+            return await DBHandler.ExecuteAsync($"""
+                DELETE FROM {TableName} 
+                WHERE reaction_id = @reaction_id AND message_id = @message_id AND user_id = @user_id;
+                """, cmd =>
+                {
+                    cmd.Parameters.AddWithValue("message_id", MessageId);
+                    cmd.Parameters.AddWithValue("reaction_id", ReactionId);
+                    cmd.Parameters.AddWithValue("user_id", ReacterId);
+            }).ContinueWith(t => t.Result > 0);
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return false;
+        }
+    }
+
+
+    public async Task<Dictionary<string, Guid>> GetReactionIds (bool PrivateMessage, Guid MessageId)
+    {
+        var ReactionIds = new Dictionary<string, Guid>();
+        string TableName = "";
+
+        if (PrivateMessage) {
+            TableName = "private_message_reactions";
+        } else
+        {
+            TableName = "server_message_reactions";
+        }
+
+        await using var conn = await DBHandler.GetConnection();
+
+        try
+        {
+            await using var cmd = new NpgsqlCommand($"""
+                SELECT user_id, reaction_id FROM {TableName} WHERE message_id = @message_id;
+            """, conn);
+
+            cmd.Parameters.AddWithValue("message_id", MessageId);
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+
+            while (await reader.ReadAsync())
+            {
+                ReactionIds.Add(reader.GetInt32(0).ToString(), reader.GetGuid(1));
+            }
+
+            return ReactionIds;
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return ReactionIds;
         }
     }
 
