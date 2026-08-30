@@ -345,8 +345,6 @@ public class MessageHandler
                 });
 
                 await Shared.SendSocketMessage(null, MessageHereJson);
-
-                return true;
             }
 
             var allMessageJson = JsonSerializer.Serialize(new NewMessagePayload

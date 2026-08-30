@@ -1117,14 +1117,14 @@ public class Server
         }
     }
 
-    public async Task<bool> PinMessage (Guid ServerId, Guid MessageId, int ChangerId, bool PrivateMessage)
+    public async Task<bool> PinMessage (Guid ServerId, Guid MessageId, int ChangerId, bool PrivateMessage, Guid? PrivateMessageId)
     {
         try
         {
             var TableName = "";
             var UpdateSql = "";
 
-            if (PrivateMessage) {
+            if (!PrivateMessage) {
                 var PermissionsNumber = await GetPermissionNumber(ServerId, ChangerId);
                 var Perm = (Permissions) PermissionsNumber;
                 var CanPinMessages = (Perm & Permissions.PinnedMessages) != 0;
@@ -1133,8 +1133,8 @@ public class Server
                 {
                     return false;
                 }
-                
-                TableName = "pm_pins";
+
+                TableName = "server_pins";
                 UpdateSql = $"""
                     INSERT INTO {TableName} (message_id, server_id)
                     VALUES (@message_id, @server_id);
@@ -1150,16 +1150,17 @@ public class Server
 
             } else
             {
-                TableName = "server_pins";
-
                 UpdateSql = $"""
-                    INSERT INTO {TableName} (message_id)
-                    VALUES (@message_id);
+                    INSERT INTO pm_pins (message_id, sender_id, receiver_id)
+                    SELECT id, sender_id, receiver_id
+                    FROM private_messages
+                    WHERE id = @private_message_id;
 
-                    DELETE FROM {TableName}
+                    DELETE FROM pm_pins
                     WHERE id = (
-                        SELECT id FROM {TableName} 
-                        WHERE (SELECT COUNT(*) FROM {TableName}) > 50
+                        SELECT id
+                        FROM pm_pins
+                        WHERE (SELECT COUNT(*) FROM pm_pins) > 50
                         ORDER BY id ASC
                         LIMIT 1
                     );
@@ -1168,9 +1169,12 @@ public class Server
 
             return await DBHandler.ExecuteAsync(UpdateSql, cmd =>
                 {
-                    if (PrivateMessage)
+                    if (!PrivateMessage)
                     {
                         cmd.Parameters.AddWithValue("server_id", ServerId);
+                    } else
+                    {
+                        cmd.Parameters.AddWithValue("private_message_id", PrivateMessageId);
                     }
                     cmd.Parameters.AddWithValue("message_id", MessageId);
             }).ContinueWith(t => t.Result > 0);
@@ -1180,7 +1184,7 @@ public class Server
         }
     }
 
-    public async Task<List<Guid>> ReadPinMessageHistory (Guid ServerId, bool PrivateMessage)
+    public async Task<List<Guid>> ReadPinMessageHistory (Guid ServerId, bool PrivateMessage, int RecieverId, int SenderId)
     {
         var Ids = new List<Guid>();
 
@@ -1191,7 +1195,7 @@ public class Server
 
             if (PrivateMessage) {
                 TableName = "pm_pins";
-                ReadSql = $"SELECT * FROM {TableName} WHERE message_id = @message_id;"; // this wasnt fully finished
+                ReadSql = $"SELECT message_id FROM {TableName} WHERE sender_id = @sender_id AND receiver_id = @receiver_id;";
             } else
             {
                 TableName = "server_pins";
@@ -1202,7 +1206,14 @@ public class Server
 
             await using var cmd = new NpgsqlCommand(ReadSql, conn);
 
-            cmd.Parameters.AddWithValue("server_id", ServerId);
+            if (TableName == "server_pins")
+            {
+                cmd.Parameters.AddWithValue("server_id", ServerId);
+            } else
+            {
+                cmd.Parameters.AddWithValue("sender_id", SenderId);
+                cmd.Parameters.AddWithValue("receiver_id", RecieverId);
+            }
 
             await using var reader = await cmd.ExecuteReaderAsync();
 

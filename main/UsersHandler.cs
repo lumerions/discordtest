@@ -244,4 +244,34 @@ public class UsersHandler
            return FriendData;
         }
     }
+
+    public async Task<string> SetPersonalNote (int UserId, string PersonalNote)
+    {
+        var Conn = await DBHandler.GetConnection();
+
+        try
+        {
+            var WriteCmd = new NpgsqlCommand(
+                $"""
+                    INSERT INTO personal_profile_note (user_id, personal_note)
+                    VALUES (@user_id, @personal_note);
+                """
+            , Conn);
+
+            WriteCmd.Parameters.AddWithValue("user_id", UserId);
+            WriteCmd.Parameters.AddWithValue("friend_id", PersonalNote);
+            var WriteResult = await WriteCmd.ExecuteScalarAsync();
+
+            if (WriteResult == null)
+            {
+                return "Failed to set personal note, please try again.";
+            }
+            
+            return "Success";
+        } catch (Exception err)
+        {
+           Console.WriteLine(err);
+           return "Internal Server Error.";
+        }
+    }
 }

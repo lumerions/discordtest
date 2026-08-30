@@ -18,6 +18,13 @@ CREATE TABLE IF NOT EXISTS users (
     profile_status SMALLINT NOT NULL DEFAULT 0 -- 0 = Idle 1 = dnd 2 = invisible 3 = online
 );
 
+CREATE TABLE IF NOT EXISTS personal_profile_note (
+    id UUID PRIMARY KEY NOT NULL,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    personal_note VARCHAR(250) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS user_sessions (
     id SERIAL PRIMARY KEY,
     user_location TEXT NOT NULL,
@@ -272,7 +279,9 @@ CREATE TABLE IF NOT EXISTS server_message_mentions (
 );
 
 CREATE TABLE IF NOT EXISTS pm_pins (
-    message_id UUID NOT NULL REFERENCES private_messages(id) ON DELETE CASCADE
+    message_id UUID NOT NULL REFERENCES private_messages(id) ON DELETE CASCADE,
+    sender_id INTEGER NOT NULL,
+    receiver_id INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS server_pins (

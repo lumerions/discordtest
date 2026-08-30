@@ -79,15 +79,20 @@ public class MainHandler
                 
                 SELECT storage_path 
                 FROM avatar_uploads
-                WHERE user_id = @id;
+                WHERE user_id = @id
+                ORDER BY created_at DESC
+                LIMIT 1;
                 
                 SELECT url, connection_type
                 FROM connections
                 WHERE user_id = @id AND visible = TRUE;
 
-                SELECT server_id
-                FROM server_members
-                WHERE user_id = @id AND user_id = @id2;
+                SELECT sm1.server_id
+                FROM server_members sm1
+                JOIN server_members sm2
+                    ON sm1.server_id = sm2.server_id
+                WHERE sm1.user_id = @id
+                AND sm2.user_id = @id2;
 
                 SELECT
                     CASE
@@ -96,6 +101,10 @@ public class MainHandler
                     END AS friend_id
                 FROM friends
                 WHERE user_id = @UserId OR friend_id = @UserId;
+
+                SELECT personal_note
+                FROM personal_profile_note
+                WHERE user_id = @id;
                 "
             : @"SELECT username, about_me, is_banned, created_at
                 FROM users
@@ -103,15 +112,20 @@ public class MainHandler
 
                 SELECT storage_path 
                 FROM avatar_uploads
-                WHERE user_id = @id;
+                WHERE user_id = @id
+                ORDER BY created_at DESC
+                LIMIT 1;
 
                 SELECT url, connection_type
                 FROM connections
                 WHERE user_id = @id AND visible = TRUE;
 
-                SELECT server_id
-                FROM server_members
-                WHERE user_id = @id AND user_id = @id2;
+                SELECT sm1.server_id
+                FROM server_members sm1
+                JOIN server_members sm2
+                    ON sm1.server_id = sm2.server_id
+                WHERE sm1.user_id = @id
+                AND sm2.user_id = @id2;
 
                 SELECT
                     CASE
@@ -136,6 +150,10 @@ public class MainHandler
                 SELECT joined_at
                 FROM server_members
                 WHERE server_id = @server_id AND user_id = @id;
+
+                SELECT personal_note
+                FROM personal_profile_note
+                WHERE user_id = @id;
                 ";
 
         await using var conn = await DBHandler.GetConnection();
@@ -161,11 +179,12 @@ public class MainHandler
         var JoinedDiscordia = DateTime.UtcNow;
         int? MutualServers = null;
         int? MutualFriends = null;
+        var Note = "";
         var Connections = new Dictionary<string, string>();
 
         if (await Reader.ReadAsync()) {
             UserName = Reader.GetString(0);
-            AboutMe = Reader.IsDBNull(0) ? "" : Reader.GetString(1);
+            AboutMe = Reader.IsDBNull(0) ? "" : Reader.GetString(0);
             Banned = Reader.GetBoolean(2);
             JoinedDiscordia = Reader.GetDateTime(3);
 
@@ -184,7 +203,7 @@ public class MainHandler
                 if (await Reader.NextResultAsync())
                 {
                     MutualServers = 0;
-                    if (await Reader.ReadAsync())
+                    while (await Reader.ReadAsync())
                     {
                         var ReaderServerId = Reader.GetGuid(0);
                         MutualServers += 1;
@@ -195,7 +214,7 @@ public class MainHandler
                 if (await Reader.NextResultAsync())
                 {
                     MutualFriends = 0;
-                    if (await Reader.ReadAsync())
+                    while (await Reader.ReadAsync())
                     {
                         var ReaderFriendId = Reader.GetInt32(0);
                         MutualFriends += 1;
@@ -229,6 +248,14 @@ public class MainHandler
                     {
                         var JoinedAt = Reader.GetDateTime(0);
                         Joined = JoinedAt;
+                    }
+                }
+
+                if (await Reader.NextResultAsync())
+                {
+                    if (await Reader.ReadAsync())
+                    {
+                        Note = Reader.GetString(0);
                     }
                 }
             }
