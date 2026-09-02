@@ -1625,4 +1625,181 @@ public class Server
             return "Internal Server Error.";
         }
     }
+
+    public async Task<string> CreateNewEvent (Guid? EventId, Guid ServerId, short event_repeat, string EventDescription, string EventTopic, DateTimeOffset StartTime, DateTimeOffset EndTime, int UserId, bool? EditEvent)
+    {
+        try
+        {
+            var PermissionsNumber = await GetPermissionNumber(ServerId, UserId);
+            var Perm = (Permissions) PermissionsNumber;
+            var CanManageEvents = (Perm & Permissions.ManageEvents) != 0;
+
+            if (!CanManageEvents)
+            {
+                return "Unauthorized to create events.";
+            }
+
+            if (event_repeat < 1 || event_repeat > 6)
+            {
+                return "Invalid Event Repeat Number.";
+            }
+
+            var UpdateEventSql = EditEvent == null ? """
+                INSERT INTO server_events (server_id, event_topic, event_description, event_repeat, start_time, end_time)
+                VALUES (@server_id, @event_topic, @event_description, @event_repeat, @start_time, @end_time)
+                RETURNING server_id;
+                """
+            : """
+                UPDATE server_events
+                SET event_topic = @event_topic,
+                    event_description = @event_description,
+                    event_repeat = @event_repeat,
+                    start_time = @start_time,
+                    end_time = @end_time
+                WHERE server_id = @server_id AND id = @event_id
+                RETURNING server_id;
+            """;
+            
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(UpdateEventSql, conn);
+
+            if (EditEvent == true)
+            {
+                if (EventId == null)
+                {
+                    return "EventId needs to be provided to edit an event.";
+                }
+                cmd.Parameters.AddWithValue("event_id", EventId);
+            }
+
+            cmd.Parameters.AddWithValue("server_id", ServerId);
+            cmd.Parameters.AddWithValue("event_topic", EventTopic);
+            cmd.Parameters.AddWithValue("event_description", EventDescription);
+            cmd.Parameters.AddWithValue("event_repeat", event_repeat);
+            cmd.Parameters.AddWithValue("start_time", StartTime);
+            cmd.Parameters.AddWithValue("end_time", EndTime);
+
+            var Result = await cmd.ExecuteScalarAsync();
+
+            if (Result == null)
+            {
+                return EditEvent == null ? "Failed to create new event, please try again later." : "Failed to update event, please try again later.";
+            }
+
+            return "Success";
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return "Internal Server Error.";
+        }
+    }
+
+    public async Task<string> CancelEvent (Guid EventId, Guid ServerId, int UserId)
+    {
+        try
+        {
+            var PermissionsNumber = await GetPermissionNumber(ServerId, UserId);
+            var Perm = (Permissions) PermissionsNumber;
+            var CanManageEvents = (Perm & Permissions.ManageEvents) != 0;
+
+            if (!CanManageEvents)
+            {
+                return "Unauthorized to create events.";
+            }
+
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand("""
+                WITH deleted AS (
+                    DELETE FROM server_events
+                    WHERE id = @server_event_id
+                    RETURNING id
+                ),
+                deleted_interested AS (
+                    DELETE FROM server_events_interested
+                    WHERE server_event_id = @server_event_id
+                )
+                SELECT id
+                FROM deleted;
+            """, conn);
+
+            cmd.Parameters.AddWithValue("server_event_id", EventId);
+            cmd.Parameters.AddWithValue("server_id", ServerId);
+
+            var Result = await cmd.ExecuteScalarAsync();
+
+            if (Result == null)
+            {
+                return "Failed to cancel event, please try again later.";
+            }
+
+            return "Success";
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return "Internal Server Error.";
+        }
+    }
+
+    public async Task<string> StartEvent (Guid EventId, Guid ServerId, int UserId)
+    {
+        try
+        {
+            var PermissionsNumber = await GetPermissionNumber(ServerId, UserId);
+            var Perm = (Permissions) PermissionsNumber;
+            var CanManageEvents = (Perm & Permissions.ManageEvents) != 0;
+
+            if (!CanManageEvents)
+            {
+                return "Unauthorized to create events.";
+            }
+
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand("""
+                UPDATE server_events
+                SET start_time = NOW()
+                WHERE id = @server_event_id;
+            """, conn);
+
+            cmd.Parameters.AddWithValue("server_event_id", EventId);
+
+            var Result = await cmd.ExecuteScalarAsync();
+
+            if (Result == null)
+            {
+                return "Failed to cancel event, please try again later.";
+            }
+
+            return "Success";
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return "Internal Server Error.";
+        }
+    }
+
+    public async Task<string> InterestedInEvent (Guid EventId, Guid ServerId, int UserId)
+    {
+        try
+        {
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand("""             
+                INSERT INTO server_events_interested (server_id, server_event_id, user_id)
+                VALUES (@server_id, @server_event_id, @user_id)
+                RETURNING server_id;
+            """, conn);
+
+            cmd.Parameters.AddWithValue("server_id", ServerId);
+            cmd.Parameters.AddWithValue("server_event_id", EventId);
+            cmd.Parameters.AddWithValue("user_id", UserId);
+
+            var Result = await cmd.ExecuteScalarAsync();
+
+            if (Result == null)
+            {
+                return "Failed to interact with Event, please try again later.";
+            }
+
+            return "Success";
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return "Internal Server Error.";
+        }
+    }
 }

@@ -14,8 +14,6 @@ public enum Permissions : long
     MentionEveryone      = 1L << 7,
     UseExternalEmojis    = 1L << 8,
     AddReactions         = 1L << 9,
-
-
     ManageChannels       = 1L << 10,
     ManageRoles          = 1L << 11,
     ManageServer         = 1L << 12,
@@ -23,8 +21,6 @@ public enum Permissions : long
     KickMembers          = 1L << 14,
     BanMembers           = 1L << 15,
     TimeoutMembers       = 1L << 16,
-
-
     Connect              = 1L << 17,
     Speak                = 1L << 18,
     Video                = 1L << 19,
@@ -33,13 +29,11 @@ public enum Permissions : long
     MoveMembers          = 1L << 22,
     UseVoiceActivity     = 1L << 23,
     PrioritySpeaker      = 1L << 24,
-
-
     ChangeNickname       = 1L << 25,
     ManageNicknames      = 1L << 26,
     UseSlashCommands     = 1L << 27,
     RequestToSpeak       = 1L << 28,
     PinnedMessages       = 1L << 29,
-    
-    Administrator        = 1L << 30
+    ManageEvents       = 1L << 30,
+    Administrator        = 1L << 31,
 }

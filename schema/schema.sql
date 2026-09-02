@@ -290,6 +290,24 @@ CREATE TABLE IF NOT EXISTS server_pins (
     channel_id UUID REFERENCES server_channels(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS server_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    event_topic VARCHAR(32) NOT NULL,
+    event_description VARCHAR(1000) NOT NULL,
+    event_repeat SMALLINT NOT NULL, -- 1 = does not repeat 2 = weekly on current day 3 = every other current day 4 = monthly on the first tuesday 5 = annually on sep 01 5 = every day 6 = every weekday (monday to friday)
+    start_time TIMESTAMPTZ NOT NULL,
+    end_time TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS server_events_interested (
+    server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    server_event_id UUID NOT NULL REFERENCES server_events(id) ON DELETE CASCADE,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS server_invites (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     server_id UUID NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
