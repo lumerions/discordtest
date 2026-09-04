@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
+using OtpNet;
 
 namespace Internal.Shared;
 
@@ -55,7 +56,8 @@ public class SharedMethods
         public ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> ChannelUsers = new();
     }
 
-    public class WebSocketSessionManager {
+    public class WebSocketSessionManager 
+    {
         public ConcurrentDictionary<string, WebSocket> Users = new();
     }
 
@@ -140,5 +142,22 @@ public class SharedMethods
         }
 
         return "Unknown Id";
+    }
+
+    public static string Get2FACode ()
+    {
+        var Secret = "3434sewq3eq4weweweweweweqAF44F";
+        var SecretBytes = Base32Encoding.ToBytes(Secret);
+        var Totp = new Totp(SecretBytes);
+        var Code = Totp.ComputeTotp();
+        return Code;
+    }
+
+    public static bool Verify2FACode (string UserEnteredCode)
+    {
+        var Secret = "3434sewq3eq4weweweweweweqAF44F";
+        var SecretBytes = Base32Encoding.ToBytes(Secret);
+        var Totp = new Totp(SecretBytes);
+        return Totp.VerifyTotp(UserEnteredCode, out var timeStepMatched, VerificationWindow.RfcSpecifiedNetworkDelay);
     }
 }

@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS users (
     profile_status SMALLINT NOT NULL DEFAULT 0 -- 0 = Idle 1 = dnd 2 = invisible 3 = online
 );
 
+CREATE TABLE IF NOT EXISTS blocked_users (
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    blocked_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS personal_profile_note (
     id UUID PRIMARY KEY NOT NULL,
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

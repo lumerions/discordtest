@@ -26,7 +26,12 @@ public class ConnectionsChangeRequest
 
 public class TypingRequest
 {
-    public int DiscordChannelId {get; set;}
+    public Guid DiscordChannelId {get; set;}
+}
+
+public class ChannelInfoRequest : TypingRequest
+{
+    public Guid ServerId {get; set;}
 }
 
 public class YoutubeChannelResponse
@@ -103,9 +108,10 @@ public class MainController : BaseController
     [Authorize]
     [EnableRateLimiting("api")]
     [HttpPost("ChannelInfo")]
-    public async Task<IActionResult> ChannelInfo ([FromBody] TypingRequest request)
+    public async Task<IActionResult> ChannelInfo ([FromBody] ChannelInfoRequest request)
     {
         var channelId = request.DiscordChannelId.ToString();
+        var ServerId = request.ServerId.ToString();
 
         if (UserId == null) return BadRequest("UserId doesn't exist.");
 
@@ -113,7 +119,7 @@ public class MainController : BaseController
 
         Users.TryAdd(UserId.ToString(), 0);
 
-        var ServerIdUsers = ServerIdIds.ServerIdUsers.GetOrAdd(channelId, _ => new ConcurrentDictionary<string,byte>());
+        var ServerIdUsers = ServerIdIds.ServerIdUsers.GetOrAdd(ServerId, _ => new ConcurrentDictionary<string,byte>());
 
         ServerIdUsers.TryAdd(UserId.ToString(), 0);
 

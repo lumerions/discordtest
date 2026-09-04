@@ -1,22 +1,28 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Npgsql;
 using Internal.Database;
+using Internal.Shared;
 
 namespace Workers.EventsWorker;
 
 public class EventWorker
 {
+    private readonly SharedMethods Shared;
     private readonly DatabaseHandler DBHandler;
+    private SharedMethods.ServerIdUserIdConnections ServerIdUserIdConnection;
 
-    public EventWorker (DatabaseHandler DBHandler_)
+    public EventWorker (SharedMethods Shared_, DatabaseHandler DBHandler_, SharedMethods.ServerIdUserIdConnections ServerIdUserIdConnection_)
     {
         DBHandler = DBHandler_;
+        ServerIdUserIdConnection = ServerIdUserIdConnection_;
+        Shared = Shared_;
     }
 
     public async Task RunEventAsync ()
     {
-        using PeriodicTimer timer = new PeriodicTimer(TimeSpan.FromHours(1));
+        using PeriodicTimer timer = new PeriodicTimer(TimeSpan.FromMinutes(5));
 
         while (await timer.WaitForNextTickAsync())
         {
@@ -33,12 +39,14 @@ public class EventWorker
                 )
                 SELECT 
                     se.server_id,
-                    se.server_event_id,
-                    sei.user_id
+                    sei.server_event_id,
+                    sei.user_id,
+                    se.event_topic
                 FROM server_events se
                 JOIN server_events_interested sei
                     ON sei.server_event_id = se.id
-                WHERE se.end_time >= NOW() - INTERVAL '1 hour';
+                WHERE se.start_time >= NOW() + INTERVAL '5 minutes'
+                AND se.start_time <= NOW() + INTERVAL '10 minutes';
             """, conn);
 
             await using var EventsReader = await cmd.ExecuteReaderAsync();
@@ -48,7 +56,15 @@ public class EventWorker
                 var EventEndedServerId = EventsReader.GetGuid(0);
                 var EventEndedEventId = EventsReader.GetGuid(1);
                 var EventEndedInterestedId = EventsReader.GetInt32(2);
-                // websocket support eventually
+                var EventEndedEventTopic = EventsReader.GetString(3);
+                var EventEndedUserIds = 
+                ServerIdUserIdConnection.ServerIdUsers.Where(x => x.Key == EventEndedServerId.ToString())
+                .ToDictionary(x => x.Key, x => x.Value);
+
+                foreach (var (item, key) in EventEndedUserIds)
+                {
+                    await Shared.SendSocketMessage(null, $"{EventEndedEventTopic} is about to start!");
+                }
             }
         }
     }
