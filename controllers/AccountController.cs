@@ -19,6 +19,8 @@ using System.Security.Cryptography;
 using Controllers.ControllBase;
 using System.Text.RegularExpressions;
 using Internal.ServerCont;
+using Internal.Shared;
+using OtpNet;
 
 public class IpApiResponse
 {
@@ -45,7 +47,19 @@ public record ChangePasswordDto
     [Required]
     public required string CurrentPassword {get; init;}
     public required string NewPassword {get; init;}
+}
 
+public record SetUp2Fa 
+{
+    [Required]
+    public required string Password {get; init;}
+}
+
+public record Enable2Fa 
+{
+    [Required]
+    public required bool Enable {get; init;}
+    public required string Code {get; init;}
 }
 
 public record RegisterDto : RegisterLoginBase
@@ -432,6 +446,201 @@ public class AccountController : BaseController
         if (UpdateResult == null) 
         {
             return BadRequest("Username or password is invalid.");
+        }
+
+        return Ok(new
+        {
+            success = true
+        });
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("setup-2fa")]
+    public async Task<IActionResult> SetUp2Fa ([FromBody] SetUp2Fa request)
+    {
+        var Password = request.Password;
+        int Id = 0;
+
+        if (!ServersContr.GetIdValue(ref Id))
+        {
+            return Unauthorized();
+        }
+
+        var EncryptKey = configuration["Main:EncryptionKey"];
+        var EncryptKeyBytes = Convert.FromBase64String(EncryptKey!);
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand("SELECT is_banned, id, username, ciphertext, tag, nonce, password_hash FROM users WHERE id = @id;",conn);
+
+        cmd.Parameters.AddWithValue("id", Id);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        if (!await reader.ReadAsync())
+        {
+            return Unauthorized("Invalid username or password.");
+        }
+
+        var Banned = reader.GetInt32(0);
+        var UserId = reader.GetInt32(1);
+        var Username = reader.GetString(2);
+        byte[] ciphertext = reader.GetFieldValue<byte[]>(3);
+        byte[] tag = reader.GetFieldValue<byte[]>(4);
+        byte[] nonce = reader.GetFieldValue<byte[]>(5);
+        var CurrentPassword = reader.GetString(6);
+
+        if (Banned == 1 || Banned == 2)
+        {
+            return Unauthorized();
+        }
+
+        if (!datahandler.VerifyArgonHash(Password, CurrentPassword))
+        {
+            return BadRequest("Username or password is invalid.");
+        }
+
+        var UserEmail = datahandler.Decrypt(ciphertext, nonce, tag, EncryptKeyBytes);
+
+        if (UserEmail == null)
+        {
+            return BadRequest("Email not verified.");
+        }
+
+        if (string.IsNullOrEmpty(UserEmail))
+        {
+            return BadRequest("Email not verified.");
+        }
+
+        await reader.DisposeAsync();
+
+        byte[] SecretBytes = RandomNumberGenerator.GetBytes(20);
+        var Secret2FA = Base32Encoding.ToString(SecretBytes);
+        var EncryptionResult = datahandler.Encrypt(Secret2FA, EncryptKeyBytes);
+        var fa_nonce = EncryptionResult.nonce;
+        var fa_ciphertext = EncryptionResult.ciphertext;
+        var fa_tag = EncryptionResult.tag;
+
+        await using var Update2FA = new NpgsqlCommand(@"
+            UPDATE users
+            SET
+                2fa_ciphertext = @2fa_ciphertext,
+                2fa_tag = @2fa_tag,
+                2fa_nonce = @2fa_nonce
+            WHERE id = @id
+            AND 2fa_enabled = FALSE
+            RETURNING id;
+        ", conn);
+
+        Update2FA.Parameters.AddWithValue("id", Id);
+        Update2FA.Parameters.AddWithValue("2fa_ciphertext", fa_ciphertext);
+        Update2FA.Parameters.AddWithValue("2fa_tag", fa_tag);
+        Update2FA.Parameters.AddWithValue("2fa_nonce", fa_nonce);
+
+        var UpdateResult = await Update2FA.ExecuteScalarAsync();
+
+        if (UpdateResult == null) 
+        {
+            return BadRequest("Error enabling 2fa, please try again later.");
+        }
+
+        return Ok(new
+        {
+            success = true
+        });
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("enable-2fa")]
+    public async Task<IActionResult> Enable2FA ([FromBody] Enable2Fa request)
+    {
+        var JwtAuthenicationToken = Request.Cookies["jwt"];
+        var EnableAuthenicator = request.Enable;
+        var AuthenicatorCode = request.Code;
+        int Id = 0;
+
+        if (!ServersContr.GetIdValue(ref Id))
+        {
+            return Unauthorized();
+        }
+
+        var EncryptKey = configuration["Main:EncryptionKey"];
+        var EncryptKeyBytes = Convert.FromBase64String(EncryptKey!);
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand("SELECT is_banned, id, username, 2fa_ciphertext, 2fa_tag, 2fa_nonce FROM users WHERE id = @id;",conn);
+
+        cmd.Parameters.AddWithValue("id", Id);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        if (!await reader.ReadAsync())
+        {
+            return Unauthorized("Invalid username or password.");
+        }
+
+        var Banned = reader.GetInt32(0);
+        var UserId = reader.GetInt32(1);
+        var Username = reader.GetString(2);
+        byte[] ciphertext = reader.GetFieldValue<byte[]>(3);
+        byte[] tag = reader.GetFieldValue<byte[]>(4);
+        byte[] nonce = reader.GetFieldValue<byte[]>(5);
+
+        if (Banned == 1 || Banned == 2)
+        {
+            return Unauthorized();
+        }
+
+        if (reader.IsDBNull(3) || reader.IsDBNull(4) || reader.IsDBNull(5))
+        {
+            return BadRequest("2FA setup has not been started.");
+        }
+
+        var SecretKeyDecrypted = datahandler.Decrypt(ciphertext, nonce, tag, EncryptKeyBytes);
+
+        if (string.IsNullOrEmpty(SecretKeyDecrypted))
+        {
+            return BadRequest("Unable to verify 2FA.");
+        }
+
+        if (!SharedMethods.Verify2FACode(AuthenicatorCode, SecretKeyDecrypted))
+        {
+            return Unauthorized("Invalid 2FA Code.");
+        }
+
+        await reader.DisposeAsync();
+
+        if (string.IsNullOrEmpty(JwtAuthenicationToken))
+        {
+            return Unauthorized("Not logged in.");
+        }
+
+        await using var Update2FA = new NpgsqlCommand($"""
+            WITH users_update AS (
+                UPDATE users
+                SET
+                    2fa_enabled = @enable
+                WHERE id = @id
+                RETURNING id
+            ),
+            session_update AS (
+                DELETE FROM user_sessions
+                WHERE session_token <> @session_token
+                RETURNING session_token
+            )
+            SELECT u.id
+            FROM users_update u
+            CROSS JOIN session_update s;
+        """, conn);
+
+        Update2FA.Parameters.AddWithValue("id", Id);
+        Update2FA.Parameters.AddWithValue("2fa_enabled", EnableAuthenicator);
+        Update2FA.Parameters.AddWithValue("session_token", JwtAuthenicationToken);
+
+        var UpdateResult = await Update2FA.ExecuteScalarAsync();
+
+        if (UpdateResult == null) 
+        {
+            return BadRequest("Error changing 2fa status, please try again later.");
         }
 
         return Ok(new

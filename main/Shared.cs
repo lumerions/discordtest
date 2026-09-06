@@ -2,12 +2,13 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using OtpNet;
+using Microsoft.Extensions.Configuration;
 
 namespace Internal.Shared;
 
 public class SharedMethods
 {
-
+    private static IConfiguration configuration;
     private static readonly Dictionary<int, string> ServerTagImageUrls = new()
     {
         [1] = "https://discord.com"
@@ -35,10 +36,11 @@ public class SharedMethods
     private readonly WebSocketSessionManager Manager;
     private readonly WebSocketChannelIdConnections websocketconns_;
 
-    public SharedMethods(WebSocketSessionManager manager, WebSocketChannelIdConnections  websocketconns)
+    public SharedMethods(IConfiguration configuration_, WebSocketSessionManager manager, WebSocketChannelIdConnections  websocketconns)
     {
         Manager = manager;
         websocketconns_ = websocketconns;
+        configuration = configuration_;
     }
 
     public Dictionary<string, string> UploadsInfo ()
@@ -144,20 +146,18 @@ public class SharedMethods
         return "Unknown Id";
     }
 
-    public static string Get2FACode ()
+    public static string Get2FACode (string Secret)
     {
-        var Secret = "3434sewq3eq4weweweweweweqAF44F";
         var SecretBytes = Base32Encoding.ToBytes(Secret);
         var Totp = new Totp(SecretBytes);
         var Code = Totp.ComputeTotp();
         return Code;
     }
 
-    public static bool Verify2FACode (string UserEnteredCode)
+    public static bool Verify2FACode (string UserEnteredCode, string Secret)
     {
-        var Secret = "3434sewq3eq4weweweweweweqAF44F";
         var SecretBytes = Base32Encoding.ToBytes(Secret);
         var Totp = new Totp(SecretBytes);
-        return Totp.VerifyTotp(UserEnteredCode, out var timeStepMatched, VerificationWindow.RfcSpecifiedNetworkDelay);
+        return Totp.VerifyTotp(UserEnteredCode, out long timeStepMatched, VerificationWindow.RfcSpecifiedNetworkDelay);
     }
 }
