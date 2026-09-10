@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using System;
+using System.Globalization;
 using System.Security.Claims;
 using System.Net.Http;
 using System.Text;
@@ -46,6 +47,8 @@ public record ChangePasswordDto
 {
     [Required]
     public required string CurrentPassword {get; init;}
+    [Required]
+    [StringLength(128, MinimumLength = 128)]
     public required string NewPassword {get; init;}
 }
 
@@ -59,6 +62,12 @@ public record Enable2Fa
 {
     [Required]
     public required bool Enable {get; init;}
+    public required string Code {get; init;}
+}
+
+public record Verify2Fa 
+{
+    [Required]
     public required string Code {get; init;}
 }
 
@@ -90,8 +99,9 @@ public class AccountController : BaseController
     private readonly AuthenicationController Authenication;
     private readonly IHttpClientFactory HttpClientfactory;
     private readonly AccountHandler Accounts;
-    public AccountController (AccountHandler Accounts_, IHttpClientFactory HttpClientfactory_, DataHandler datahandler_, IConfiguration configuration_, DatabaseHandler DBHandler_, AuthenicationController Authenication_)
+    public AccountController (ServersController ServersContr_, AccountHandler Accounts_, IHttpClientFactory HttpClientfactory_, DataHandler datahandler_, IConfiguration configuration_, DatabaseHandler DBHandler_, AuthenicationController Authenication_)
     {
+        ServersContr = ServersContr_;
         datahandler = datahandler_;
         configuration = configuration_;
         DBHandler = DBHandler_;
@@ -105,6 +115,55 @@ public class AccountController : BaseController
         return Regex.IsMatch(Username, "^[a-zA-Z0-9_]{3,20}$");
     }
 
+    public async Task<bool> SetSession (byte[] Emailciphertext, byte[] Emailnonce, byte[] Emailtag, byte[] EncryptKeyBytes, string Username, int UserId, bool? EmailIsProvided, string? EmailProvided)
+    {
+        try
+        {
+            string? EmailAddy = null;
+
+            if (EmailIsProvided == true)
+            {
+                EmailAddy = EmailProvided;
+            } else
+            {
+                EmailAddy = datahandler.Decrypt(Emailciphertext, Emailnonce, Emailtag, EncryptKeyBytes);
+            }
+
+            var Token = Authenication.SetJWTValue(configuration, UserId, EmailAddy, Username);
+            var UserInfo = GetUserInfo();
+            var IPAddress = UserInfo.IP;
+            var OperatingSys = UserInfo.OS;
+            var Browser = UserInfo.Browser;
+            var Location = await GetLocationString(IPAddress);
+            var CsrfToken = RandomNumberGenerator.GetHexString(32);
+
+            Response.Cookies.Append("jwt", Token, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Expires = DateTime.UtcNow.AddDays(30),
+                Path = "/",
+                MaxAge = TimeSpan.FromDays(30)
+            });
+
+            Response.Cookies.Append("x-csrf-token", CsrfToken, new CookieOptions
+            {
+                HttpOnly = false,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Expires = DateTime.UtcNow.AddDays(30),
+                Path = "/",
+                MaxAge = TimeSpan.FromDays(30)
+            });
+
+            await Accounts.CreateNewSession(OperatingSys, Browser, Location, UserId, Token);
+        } catch (Exception err)
+        {
+            return false;
+        }
+        return true;
+    }
     public async Task<string> GetLocationString (string IPAddress) 
     {
         var Client = HttpClientfactory.CreateClient();
@@ -190,7 +249,7 @@ public class AccountController : BaseController
     [HttpPost("login")]
     public async Task<IActionResult> Login ([FromBody] LoginDto request)
     {
-        var Email = request.Email;
+        var Email = request.Email.Trim();
         var Password = request.Password;
         var SecretKey = configuration["Main:HMacSha256Key"];
         var EncryptKey = configuration["Main:EncryptionKey"];
@@ -274,7 +333,7 @@ public class AccountController : BaseController
     [HttpPost("register")]
     public async Task<IActionResult> Register ([FromBody] RegisterDto request)
     {
-        var Email = request.Email;
+        var Email = request.Email.Trim();
         var Password = request.Password;
         var Username = request.Username.Trim();
         var DayBorn = request.Day;
@@ -283,6 +342,7 @@ public class AccountController : BaseController
         var SecretKey = configuration["Main:HMacSha256Key"];
         var EncryptKey = configuration["Main:EncryptionKey"];
         var ValidationResult = ValidateRequest(Password, Email, Username, true);
+        var InvalidDobMessage = "Invalid dob, must be atleast 13 years old.";
 
         if (ValidationResult.Length > 0)
         {
@@ -291,15 +351,31 @@ public class AccountController : BaseController
 
         if (!int.TryParse(DayBorn, out var DayBornInt) || !int.TryParse(MonthBorn, out var MonthBornInt) || !int.TryParse(YearBorn, out var YearBornInt))
         {
-            return BadRequest("Invalid dob, must be atleast 13 years old.");
+            return BadRequest(InvalidDobMessage);
+        }
+
+        if (DayBornInt <= 0 || MonthBornInt <= 0 || YearBornInt <= 0)
+        {
+            return BadRequest(InvalidDobMessage);
         }
 
         if (DayBornInt > 31 || MonthBornInt > 12 || YearBornInt > 2013)
         {
-            return BadRequest("Invalid dob, must be atleast 13 years old.");
+            return BadRequest(InvalidDobMessage);
         }
 
         var DOBString = $"{DayBornInt}/{MonthBornInt}/{YearBornInt}";
+
+        if (!DateTime.TryParse(DOBString, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime TimeResult))
+        {
+            return BadRequest(InvalidDobMessage);
+        }
+
+        if (TimeResult > DateTime.Today.AddYears(-13))
+        {
+            return BadRequest(InvalidDobMessage);
+        }
+
         byte[] SecretKeyBytes = Convert.FromBase64String(SecretKey!);
         var EmailHmacSha256 = datahandler.HmacSha256(Email, SecretKeyBytes);
         var PasswordHash = datahandler.ArgonHash(Password);
@@ -350,35 +426,8 @@ public class AccountController : BaseController
         }
 
         var UserId = Convert.ToInt32(Result);
-        var Token = Authenication.SetJWTValue(configuration, UserId, Email, Username);
-        var UserInfo = GetUserInfo();
-        var IPAddress = UserInfo.IP;
-        var OperatingSys = UserInfo.OS;
-        var Browser = UserInfo.Browser;
-        var Location = await GetLocationString(IPAddress);
-        var CsrfToken = RandomNumberGenerator.GetHexString(32);
 
-        Response.Cookies.Append("jwt", Token, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = true,
-            SameSite = SameSiteMode.Strict,
-            Expires = DateTime.UtcNow.AddDays(30),
-            Path = "/",
-            MaxAge = TimeSpan.FromDays(30)
-        });
-
-        Response.Cookies.Append("x-csrf-token", CsrfToken, new CookieOptions
-        {
-            HttpOnly = false,
-            Secure = true,
-            SameSite = SameSiteMode.Strict,
-            Expires = DateTime.UtcNow.AddDays(30),
-            Path = "/",
-            MaxAge = TimeSpan.FromDays(30)
-        });
-
-        await Accounts.CreateNewSession(OperatingSys, Browser, Location, UserId, Token);
+        await SetSession(ciphertext, nonce, tag, EncryptKeyBytes, Username, UserId, true, Email);
 
         return Ok(new
         {
@@ -398,11 +447,6 @@ public class AccountController : BaseController
         if (!ServersContr.GetIdValue(ref Id))
         {
             return Unauthorized();
-        }
-
-        if (NewPassword.Length < 8 || NewPassword.Length > 128)
-        {
-            return BadRequest("Invalid password length must be > 8 or < 128.");
         }
 
         await using var conn = await DBHandler.GetConnection();
@@ -479,6 +523,11 @@ public class AccountController : BaseController
         if (!await reader.ReadAsync())
         {
             return Unauthorized("Invalid username or password.");
+        }
+
+        if (reader.IsDBNull(3) || reader.IsDBNull(4) || reader.IsDBNull(5))
+        {
+            return BadRequest("2FA setup has not been started.");
         }
 
         var Banned = reader.GetInt32(0);
@@ -578,6 +627,11 @@ public class AccountController : BaseController
             return Unauthorized("Invalid username or password.");
         }
 
+        if (reader.IsDBNull(3) || reader.IsDBNull(4) || reader.IsDBNull(5))
+        {
+            return BadRequest("2FA setup has not been started.");
+        }
+
         var Banned = reader.GetInt32(0);
         var UserId = reader.GetInt32(1);
         var Username = reader.GetString(2);
@@ -588,11 +642,6 @@ public class AccountController : BaseController
         if (Banned == 1 || Banned == 2)
         {
             return Unauthorized();
-        }
-
-        if (reader.IsDBNull(3) || reader.IsDBNull(4) || reader.IsDBNull(5))
-        {
-            return BadRequest("2FA setup has not been started.");
         }
 
         var SecretKeyDecrypted = datahandler.Decrypt(ciphertext, nonce, tag, EncryptKeyBytes);
@@ -642,6 +691,81 @@ public class AccountController : BaseController
         {
             return BadRequest("Error changing 2fa status, please try again later.");
         }
+
+        return Ok(new
+        {
+            success = true
+        });
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("verify-2fa")]
+    public async Task<IActionResult> Verify2FA ([FromBody] Verify2Fa request)
+    {
+        var JwtAuthenicationToken = Request.Cookies["jwt"];
+        var AuthenicatorCode = request.Code;
+        int Id = 0;
+
+        if (!ServersContr.GetIdValue(ref Id))
+        {
+            return Unauthorized();
+        }
+
+        var EncryptKey = configuration["Main:EncryptionKey"];
+        var EncryptKeyBytes = Convert.FromBase64String(EncryptKey!);
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand("SELECT is_banned, id, username, 2fa_ciphertext, 2fa_tag, 2fa_nonce, ciphertext, tag, nonce FROM users WHERE id = @id;",conn);
+
+        cmd.Parameters.AddWithValue("id", Id);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        if (!await reader.ReadAsync())
+        {
+            return Unauthorized("Invalid username or password.");
+        }
+
+        if (reader.IsDBNull(3) || reader.IsDBNull(4) || reader.IsDBNull(5))
+        {
+            return BadRequest("2FA setup has not been started.");
+        }
+
+        var Banned = reader.GetInt32(0);
+        var UserId = reader.GetInt32(1);
+        var Username = reader.GetString(2);
+        byte[] ciphertext = reader.GetFieldValue<byte[]>(3);
+        byte[] tag = reader.GetFieldValue<byte[]>(4);
+        byte[] nonce = reader.GetFieldValue<byte[]>(5);
+        byte[] Emailciphertext = reader.GetFieldValue<byte[]>(6);
+        byte[] Emailtag = reader.GetFieldValue<byte[]>(7);
+        byte[] Emailnonce = reader.GetFieldValue<byte[]>(8);
+
+        if (Banned == 1 || Banned == 2)
+        {
+            return Unauthorized();
+        }
+
+        var SecretKeyDecrypted = datahandler.Decrypt(ciphertext, nonce, tag, EncryptKeyBytes);
+
+        if (string.IsNullOrEmpty(SecretKeyDecrypted))
+        {
+            return BadRequest("Unable to verify 2FA.");
+        }
+
+        if (!SharedMethods.Verify2FACode(AuthenicatorCode, SecretKeyDecrypted))
+        {
+            return Unauthorized("Invalid 2FA Code.");
+        }
+
+        await reader.DisposeAsync();
+
+        if (string.IsNullOrEmpty(JwtAuthenicationToken))
+        {
+            return Unauthorized("Not logged in.");
+        }
+
+        await SetSession(Emailciphertext, Emailnonce, Emailtag, EncryptKeyBytes, Username, UserId, null, null);
 
         return Ok(new
         {
