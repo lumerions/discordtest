@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("discordtest")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+13a7f8bbe25e40625d4653782fd78108429074f9")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3448bf58e32e1578133dfbb5ba01a456b68f8f8c")]
 [assembly: System.Reflection.AssemblyProductAttribute("discordtest")]
 [assembly: System.Reflection.AssemblyTitleAttribute("discordtest")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

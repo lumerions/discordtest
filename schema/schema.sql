@@ -22,6 +22,15 @@ CREATE TABLE IF NOT EXISTS users (
     profile_status SMALLINT NOT NULL DEFAULT 0 -- 0 = Idle 1 = dnd 2 = invisible 3 = online
 );
 
+CREATE TABLE IF NOT EXISTS user_message_reports (
+    id SERIAL PRIMARY KEY,
+    picture_path TEXT NOT NULL,
+    reported_message VARCHAR(250) NOT NULL,
+    user_id_reporter INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id_reported INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sent_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS blocked_users (
     user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     blocked_at TIMESTAMPTZ DEFAULT NOW()

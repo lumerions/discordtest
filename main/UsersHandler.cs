@@ -1,6 +1,6 @@
 using System;
+using System.Threading.Tasks;
 using System.IO;
-using System.Linq;
 using System.Collections.Generic;
 using Npgsql;
 using Internal.Database;
@@ -52,6 +52,7 @@ public class UsersHandler
             {
                 File.Delete(FileNamePath);
                 await DeleteFileData();
+                await Transaction.CommitAsync();
                 return true;
             } else
             {
@@ -196,7 +197,7 @@ public class UsersHandler
 
             if (WriteResult == null)
             {
-                return "Failed to add friend, please try again.";
+                return "Failed to remove friend, please try again.";
             }
             
             return "Success";
@@ -231,8 +232,8 @@ public class UsersHandler
 
             while (await reader.ReadAsync())
             {
-                var FriendId = reader.GetInt32(1);
-                var FriendedAt = reader.GetFieldValue<DateTimeOffset>(2);
+                var FriendId = reader.GetInt32(0);
+                var FriendedAt = reader.GetFieldValue<DateTimeOffset>(1);
                 FriendData.Add(FriendId.ToString(), FriendedAt);
             }
             
@@ -254,17 +255,51 @@ public class UsersHandler
             var WriteCmd = new NpgsqlCommand(
                 $"""
                     INSERT INTO personal_profile_note (user_id, personal_note)
-                    VALUES (@user_id, @personal_note);
+                    VALUES (@user_id, @personal_note)
+                    RETURNING id;
                 """
             , Conn);
 
             WriteCmd.Parameters.AddWithValue("user_id", UserId);
-            WriteCmd.Parameters.AddWithValue("friend_id", PersonalNote);
+            WriteCmd.Parameters.AddWithValue("personal_note", PersonalNote);
             var WriteResult = await WriteCmd.ExecuteScalarAsync();
 
             if (WriteResult == null)
             {
                 return "Failed to set personal note, please try again.";
+            }
+            
+            return "Success";
+        } catch (Exception err)
+        {
+           Console.WriteLine(err);
+           return "Internal Server Error.";
+        }
+    }
+
+    public async Task<string> ReportMessage (int UserId, int UserIdReported, string MessageSent)
+    {
+        var Conn = await DBHandler.GetConnection();
+
+        try
+        {
+            var WriteCmd = new NpgsqlCommand(
+                $"""
+                    INSERT INTO user_message_reports (reported_message, user_id_reporter, user_id_reported)
+                    VALUES (@reported_message, @user_id_reporter, @user_id_reported)
+                    RETURNING id;
+                """
+            , Conn);
+
+            WriteCmd.Parameters.AddWithValue("user_id_reporter", UserId);
+            WriteCmd.Parameters.AddWithValue("user_id_reported", UserIdReported);
+            WriteCmd.Parameters.AddWithValue("reported_message", MessageSent);
+
+            var WriteResult = await WriteCmd.ExecuteScalarAsync();
+
+            if (WriteResult == null)
+            {
+                return "Failed to report message, please try again.";
             }
             
             return "Success";

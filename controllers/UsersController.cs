@@ -153,9 +153,9 @@ public class UsersController : BaseController
             {
                 try
                 {
-                    if (System.IO.File.Exists(StoragePath))
+                    if (System.IO.File.Exists(FullPath))
                     {
-                        System.IO.File.Delete(StoragePath);
+                        System.IO.File.Delete(FullPath);
                     }
                 } catch 
                 {
