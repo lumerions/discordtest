@@ -264,7 +264,7 @@ public class AccountController : BaseController
         var EmailHmacSha256 = datahandler.HmacSha256(Email, SecretKeyBytes);
 
         await using var conn = await DBHandler.GetConnection();
-        await using var cmd = new NpgsqlCommand("SELECT password_hash, is_banned, id, username, ciphertext, tag, nonce FROM users WHERE email_lookup = @email_lookup;",conn);
+        await using var cmd = new NpgsqlCommand("SELECT password_hash, is_banned, id, username, ciphertext, tag, nonce, 2fa_enabled FROM users WHERE email_lookup = @email_lookup;",conn);
         cmd.Parameters.AddWithValue("email_lookup", EmailHmacSha256);
         await using var reader = await cmd.ExecuteReaderAsync();
 
@@ -281,6 +281,20 @@ public class AccountController : BaseController
         byte[] tag = reader.GetFieldValue<byte[]>(5);
         byte[] nonce = reader.GetFieldValue<byte[]>(6);
 
+        if (!reader.IsDBNull(7))
+        {
+            bool MultiFactorAuthenicationEnabled = reader.GetBoolean(7);
+
+            if (MultiFactorAuthenicationEnabled)
+            {
+                return Ok(new
+                {
+                    mfa = true,
+                    success = true
+                });
+            }
+        }
+
         if (Banned == 1 || Banned == 2)
         {
             return Unauthorized();
@@ -292,36 +306,8 @@ public class AccountController : BaseController
         }
 
         var EncryptKeyBytes = Convert.FromBase64String(EncryptKey!);
-        var UserEmail = datahandler.Decrypt(ciphertext, nonce, tag, EncryptKeyBytes);
-        var Token = Authenication.SetJWTValue(configuration, UserId, UserEmail, Username);
-        var UserInfo = GetUserInfo();
-        var IPAddress = UserInfo.IP;
-        var OperatingSys = UserInfo.OS;
-        var Browser = UserInfo.Browser;
-        var Location = await GetLocationString(IPAddress);
-        var CsrfToken = RandomNumberGenerator.GetHexString(32);
 
-        Response.Cookies.Append("jwt", Token, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = true,
-            SameSite = SameSiteMode.Strict,
-            Expires = DateTime.UtcNow.AddDays(30),
-            Path = "/",
-            MaxAge = TimeSpan.FromDays(30)
-        });
-
-        Response.Cookies.Append("x-csrf-token", CsrfToken, new CookieOptions
-        {
-            HttpOnly = false,
-            Secure = true,
-            SameSite = SameSiteMode.Strict,
-            Expires = DateTime.UtcNow.AddDays(30),
-            Path = "/",
-            MaxAge = TimeSpan.FromDays(30)
-        });
-
-        await Accounts.CreateNewSession(OperatingSys, Browser, Location, UserId, Token);
+        await SetSession(ciphertext, nonce, tag, EncryptKeyBytes, Username, UserId, true, Email);
 
         return Ok(new
         {
