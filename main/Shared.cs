@@ -35,12 +35,14 @@ public class SharedMethods
     };
     private readonly WebSocketSessionManager Manager;
     private readonly WebSocketChannelIdConnections websocketconns_;
+    private readonly ServerIdUserIdConnections ServerIdUserIdConnections_;
 
-    public SharedMethods(IConfiguration configuration_, WebSocketSessionManager manager, WebSocketChannelIdConnections  websocketconns)
+    public SharedMethods(IConfiguration configuration_, WebSocketSessionManager manager, WebSocketChannelIdConnections  websocketconns, ServerIdUserIdConnections ServerIdUserIdConnectionn)
     {
         Manager = manager;
         websocketconns_ = websocketconns;
         configuration = configuration_;
+        ServerIdUserIdConnections_ = ServerIdUserIdConnectionn;
     }
 
     public Dictionary<string, string> UploadsInfo ()
@@ -63,7 +65,12 @@ public class SharedMethods
         public ConcurrentDictionary<string, WebSocket> Users = new();
     }
 
-    public async Task SendSocketMessage(Guid? DiscordChannelId, string? SocketJSONType, bool? ChannelIdsProvided = null, ConcurrentDictionary<string, byte>? ChannelIdDict = null)
+    public class WebSocketSessionIds 
+    {
+        public ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> SessionIds = new();
+    }
+
+    public async Task SendSocketMessage(Guid? DiscordChannelId, string? SocketJSONType, bool? ChannelIdsProvided = null, ConcurrentDictionary<string, byte>? ChannelIdDict = null, bool? ServerWideNotification = null)
     {
         ConcurrentDictionary<string, byte> ChannelIds;
 
@@ -72,8 +79,19 @@ public class SharedMethods
             ChannelIds = ChannelIdDict;
         } else
         {
-            if (!websocketconns_.ChannelUsers.TryGetValue(DiscordChannelId.ToString(), out ChannelIds))
-                return;
+            if (ServerWideNotification == null)
+            {
+                if (!websocketconns_.ChannelUsers.TryGetValue(DiscordChannelId.ToString(), out ChannelIds))
+                {
+                    return;
+                }
+            } else
+            {
+                if (!ServerIdUserIdConnections_.ServerIdUsers.TryGetValue(DiscordChannelId.ToString(), out ChannelIds))
+                {
+                    return;
+                }
+            }
         }
 
         var SocketType = Encoding.UTF8.GetBytes(SocketJSONType);
@@ -113,7 +131,7 @@ public class SharedMethods
         foreach (var ChannelUserId in ChannelIds.Keys)
         {
             MessageTasks.Add(SendMessage(ChannelUserId));
-        }
+        } 
 
         await Task.WhenAll(MessageTasks);
     }

@@ -38,7 +38,32 @@ public class AccountHandler
                 cmd.Parameters.AddWithValue("user_id", UserId);
                 cmd.Parameters.AddWithValue("session_token", NewSessionToken);
                 cmd.Parameters.AddWithValue("expires_at", DateTime.UtcNow.AddDays(30));
-            }).ContinueWith(r => r.Result > 0);
+            }) > 0;
+        } catch (Exception error) {
+            Console.WriteLine(error);
+            return false;
+        }
+    }
+
+    public async Task<bool> DeleteUserSession (int Session_Id, int user_id, bool DeleteAllButId)
+    {
+        try
+        {
+            var DeleteSessionSql = "";
+
+            if (DeleteAllButId)
+            {
+                DeleteSessionSql =  "DELETE FROM user_sessions WHERE id <> @Session_Id AND user_id = @user_id;";
+            } else
+            {
+                DeleteSessionSql = "DELETE FROM user_sessions WHERE id = @Session_Id AND user_id = @user_id;";
+            }
+
+            return await DBHandler.ExecuteAsync(DeleteSessionSql, cmd =>
+            {
+                cmd.Parameters.AddWithValue("user_id", user_id);
+                cmd.Parameters.AddWithValue("Session_Id", Session_Id);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;

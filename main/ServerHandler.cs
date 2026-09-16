@@ -81,7 +81,7 @@ public class Server
             {
                 cmd.Parameters.AddWithValue("id", ServerId);
                 cmd.Parameters.AddWithValue("server_owner_id", ServerOwnerId);
-            }).ContinueWith(r => r.Result > 0);
+            }) > 0;
         } catch(Exception err) {
             Console.WriteLine(err);
             return false;
@@ -153,7 +153,7 @@ public class Server
                 cmd.Parameters.AddWithValue("server_owner_id", OwnerUserId);
                 cmd.Parameters.AddWithValue("server_name", ServerName);
                 cmd.Parameters.AddWithValue("nickname", OwnerName);
-            }).ContinueWith(r => r.Result > 0);
+            }) > 0;
         } catch(Exception err) {
             Console.WriteLine(err);
             return false;
@@ -438,7 +438,7 @@ public class Server
                 cmd.Parameters.AddWithValue("moderator_id", ModeratorId);
                 cmd.Parameters.AddWithValue("reason", BanReason);
                 cmd.Parameters.AddWithValue("expires_at", (object?) ExpiresAt ?? DBNull.Value);
-            }).ContinueWith(r => r.Result > 0);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
@@ -484,7 +484,7 @@ public class Server
                 cmd.Parameters.AddWithValue("channel_id", ChannelId);
                 cmd.Parameters.AddWithValue("max_uses", MaxUses);
                 cmd.Parameters.AddWithValue("expiration", ExpiresAt);
-            }).ContinueWith(v => v.Result > 0);
+            }) > 0;
 
         } catch (Exception error) {
             Console.WriteLine(error);
@@ -503,7 +503,7 @@ public class Server
             {
                 cmd.Parameters.AddWithValue("server_id", ServerId);
                 cmd.Parameters.AddWithValue("user_id", UserId);
-            }).ContinueWith(v => v.Result > 0);
+            }) > 0;
 
         } catch (Exception error) {
             Console.WriteLine(error);
@@ -558,7 +558,7 @@ public class Server
                 cmd.Parameters.AddWithValue("server_id", ServerId);
                 cmd.Parameters.AddWithValue("user_id", UserId);
                 cmd.Parameters.AddWithValue("nickname", Nickname);
-            }).ContinueWith(t => t.Result > 0);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
@@ -576,7 +576,7 @@ public class Server
                 cmd.Parameters.AddWithValue("ServerId", ServerId);
                 cmd.Parameters.AddWithValue("code", InviteCode);
                 cmd.Parameters.AddWithValue("is_revoked", true);
-            }).ContinueWith(t => t.Result > 0);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
@@ -609,7 +609,7 @@ public class Server
                 cmd.Parameters.AddWithValue("position", Position);
                 cmd.Parameters.AddWithValue("name", ChannelName);
                 cmd.Parameters.AddWithValue("channel_topic", ChannelTopic);
-            }).ContinueWith(t => t.Result > 0);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
@@ -629,7 +629,7 @@ public class Server
                 cmd.Parameters.AddWithValue("server_id", ServerId);
                 cmd.Parameters.AddWithValue("position", Position);
                 cmd.Parameters.AddWithValue("new_position", NewPosition);
-            }).ContinueWith(t => t.Result > 0);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
@@ -948,7 +948,7 @@ public class Server
                     cmd.Parameters.AddWithValue("message_id", MessageId);
                     cmd.Parameters.AddWithValue("reaction_id", ReactionId);
                     cmd.Parameters.AddWithValue("user_id", ReacterId);
-            }).ContinueWith(t => t.Result > 0);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
@@ -978,7 +978,7 @@ public class Server
                     cmd.Parameters.AddWithValue("message_id", MessageId);
                     cmd.Parameters.AddWithValue("reaction_id", ReactionId);
                     cmd.Parameters.AddWithValue("user_id", ReacterId);
-            }).ContinueWith(t => t.Result > 0);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
@@ -1089,7 +1089,7 @@ public class Server
                 """, cmd =>
                 {
                     cmd.Parameters.AddWithValue("id", MessageId);
-            }).ContinueWith(t => t.Result > 0);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
@@ -1133,7 +1133,7 @@ public class Server
                     cmd.Parameters.AddWithValue("block_custom_words", block_custom_words);
                     cmd.Parameters.AddWithValue("server_id", ServerId);
                     cmd.Parameters.AddWithValue("bypass", AutomodChannelRoleIdsBypassJson);
-            }).ContinueWith(t => t.Result > 0);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
@@ -1177,7 +1177,7 @@ public class Server
                     } 
                     
                     cmd.Parameters.AddWithValue("server_id", ServerId);
-            }).ContinueWith(t => t.Result > 0);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;
@@ -1244,7 +1244,7 @@ public class Server
                         cmd.Parameters.AddWithValue("private_message_id", PrivateMessageId);
                     }
                     cmd.Parameters.AddWithValue("message_id", MessageId);
-            }).ContinueWith(t => t.Result > 0);
+            }) > 0;
         } catch (Exception error) {
             Console.WriteLine(error);
             return false;

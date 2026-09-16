@@ -302,7 +302,7 @@ public class MainHandler
             cmd.Parameters.AddWithValue("sender_id", SenderId);
             cmd.Parameters.AddWithValue("request_id", RecieverId);
             cmd.Parameters.AddWithValue("type", true);
-        }).ContinueWith(t => t.Result > 0);
+        }) > 0;
 
         if (RequestSuccessful)
         {
@@ -341,7 +341,7 @@ public class MainHandler
         {
             cmd.Parameters.AddWithValue("ChangerId", ChangerId);
             cmd.Parameters.AddWithValue("ProfileStatusNumber", ProfileStatusNumber);
-        }).ContinueWith(t => t.Result > 0);
+        }) > 0;
 
         return RequestSuccessful;
     }
@@ -355,7 +355,7 @@ public class MainHandler
         ", cmd =>
         {
             cmd.Parameters.AddWithValue("UserId", UserId);
-        }).ContinueWith(t => t.Result > 0);
+        }) > 0;
 
         return RequestSuccessful;
     }

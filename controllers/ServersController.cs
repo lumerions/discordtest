@@ -11,6 +11,8 @@ using Internal.Roles;
 using System.Text;
 using System.Net.WebSockets;
 using System.Linq;
+using System.Text;
+using System.Text.Json;
 using StackExchange.Redis;
 using Controllers.ControllBase;
 
@@ -112,12 +114,22 @@ public record SendWebhookMessageDto
 
 public record CreateChannelWebhook : ServerIdChannelIdBase {};
 
+
+public record ChangeServerNick
+{
+    [Required]
+    public required int UserIdChanged {get; init;}
+    public required string NewNickname {get; init;}
+}
+
+
 [ApiController]
 [Route("/api/internal/servers/")]
 public class ServersController : BaseController
 {
     private readonly Server ServerHandler;
     private readonly IDatabase RedisDatabase;
+    private readonly SharedMethods Shared;
     private readonly SharedMethods.WebSocketSessionManager Manager;
 
     private readonly SharedMethods.WebSocketChannelIdConnections websocketconns_;
@@ -443,7 +455,14 @@ public class ServersController : BaseController
         }
 
         await ServerHandler.ChangeServerNickname(ServerId, NewNicknameId, NewNickname);
-        // websocket support needs to be added for all of this but ill do it later
+
+        var ChangeServerNickname = JsonSerializer.Serialize(new ChangeServerNick
+        {
+            UserIdChanged = NewNicknameId,
+            NewNickname = NewNickname
+        });
+
+        await Shared.SendSocketMessage(ServerId, ChangeServerNickname, null, null, true);
         
         return Ok(new
         {

@@ -56,6 +56,7 @@ builder.Services.AddSingleton<SharedMethods.WebSocketChannelIdConnections>();
 builder.Services.AddSingleton<RedisHandler>();
 builder.Services.AddSingleton<DatabaseHandler>();
 builder.Services.AddSingleton<SharedMethods.WebSocketSessionManager>();
+builder.Services.AddSingleton<SharedMethods.WebSocketSessionIds>();
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 builder.Services.AddHttpClient();

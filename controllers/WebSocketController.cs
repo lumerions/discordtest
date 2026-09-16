@@ -35,16 +35,18 @@ public class WebSocketController : BaseController
     private readonly IDatabase RedisDatabase;
     private readonly SharedMethods.WebSocketChannelIdConnections websocketconns_;
     private readonly SharedMethods.ServerIdUserIdConnections ServerIdIds;
+    private readonly SharedMethods.WebSocketSessionIds SocketSessionIds;
 
     private readonly SharedMethods Shared;
 
-    public WebSocketController(SharedMethods.ServerIdUserIdConnections ServerIdIds_, SharedMethods.WebSocketSessionManager manager, RedisHandler redis_, SharedMethods.WebSocketChannelIdConnections  websocketconns, SharedMethods shared_)
+    public WebSocketController(SharedMethods.WebSocketSessionIds SocketSessionIds_, SharedMethods.ServerIdUserIdConnections ServerIdIds_, SharedMethods.WebSocketSessionManager manager, RedisHandler redis_, SharedMethods.WebSocketChannelIdConnections  websocketconns, SharedMethods shared_)
     {
         Manager = manager;
         RedisDatabase = redis_.GetRedisDatabase();
         websocketconns_ = websocketconns;
         Shared = shared_;
         ServerIdIds = ServerIdIds_;
+        SocketSessionIds = SocketSessionIds_;
     }
 
     [Authorize]
@@ -64,7 +66,16 @@ public class WebSocketController : BaseController
 
         try {
 
+        var JwtAuthenicationToken = Request.Cookies["jwt"];
+
+        if (string.IsNullOrEmpty(JwtAuthenicationToken))
+        {
+            return;
+        }
+
         Manager.Users.TryAdd(UserId, websocket);
+        SocketSessionIds.SessionIds.GetOrAdd(UserId, _ => new ConcurrentDictionary<string, byte>()).TryAdd(JwtAuthenicationToken, 0);
+        
         var buffer = new byte[1024  * 4];
 
         while (websocket.State == WebSocketState.Open)
@@ -96,7 +107,7 @@ public class WebSocketController : BaseController
                                 await RedisDatabase.SetRemoveAsync(RedisKey, fullKey);
                                 break;
                         }
-                        // TODO add actual auth lol
+                        
                         await Shared.SendSocketMessage(DiscordChannelId, SocketJSONType);
                     }
 

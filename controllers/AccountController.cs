@@ -88,6 +88,13 @@ public record LoginDto : RegisterLoginBase
     public required string Password {get; init;}
 }
 
+public record DeleteSessionDto
+{
+    [Required]
+    public required bool DeleteAllSessions {get; init;}
+    public required int SessionId {get; init;}
+}
+
 [ApiController]
 [Route("/api/internal/account/")]
 public class AccountController : BaseController
@@ -752,6 +759,57 @@ public class AccountController : BaseController
         }
 
         await SetSession(Emailciphertext, Emailnonce, Emailtag, EncryptKeyBytes, Username, UserId, null, null);
+
+        return Ok(new
+        {
+            success = true
+        });
+    }
+
+    [Authorize]
+    [EnableRateLimiting("api")]
+    [HttpPost("delete-session")]
+    public async Task<IActionResult> DeleteSession ([FromBody] DeleteSessionDto request)
+    {
+        var JwtAuthenicationToken = Request.Cookies["jwt"];
+        var DeleteAll = request.DeleteAllSessions;
+        var SessionId = request.SessionId;
+        int Id = 0;
+
+        if (!ServersContr.GetIdValue(ref Id))
+        {
+            return Unauthorized();
+        }
+
+        if (string.IsNullOrEmpty(JwtAuthenicationToken))
+        {
+            return Unauthorized("Not logged in.");
+        }
+
+        var EncryptKey = configuration["Main:EncryptionKey"];
+        var EncryptKeyBytes = Convert.FromBase64String(EncryptKey!);
+        await using var conn = await DBHandler.GetConnection();
+        await using var cmd = new NpgsqlCommand("SELECT is_banned FROM users WHERE id = @id;",conn);
+
+        cmd.Parameters.AddWithValue("id", Id);
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+
+        if (!await reader.ReadAsync())
+        {
+            return Unauthorized("Account not found.");
+        }
+
+        var Banned = reader.GetInt32(0);
+
+        if (Banned == 1 || Banned == 2)
+        {
+            return Unauthorized();
+        }
+
+        await reader.DisposeAsync();
+
+        await Accounts.DeleteUserSession(SessionId, Id, DeleteAll);
 
         return Ok(new
         {

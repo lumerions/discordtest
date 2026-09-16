@@ -147,7 +147,7 @@ public class UsersController : BaseController
                 cmd.Parameters.AddWithValue("file_size", file.Length);
                 cmd.Parameters.AddWithValue("mime_type", file.ContentType);                              
                 cmd.Parameters.AddWithValue("storage_path", StoragePath);                              
-            }).ContinueWith(r => r.Result > 0);
+            }) > 0;
 
             if (!Success)
             {

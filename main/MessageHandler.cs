@@ -344,7 +344,7 @@ public class MessageHandler
                     ChannelId = ChannelId
                 });
 
-                await Shared.SendSocketMessage(null, MessageHereJson);
+                await Shared.SendSocketMessage(ServerId, MessageHereJson, null, null, true);
             }
 
             var allMessageJson = JsonSerializer.Serialize(new NewMessagePayload
