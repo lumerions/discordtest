@@ -380,7 +380,6 @@ public class AccountController : BaseController
         var RandInt = RandomNumberGenerator.GetInt32(1, 5);
         var RandId = Guid.NewGuid();
         var DefaultInformation = SharedMethods.GetInfoOffIndex(RandInt);
-        var SetDefaultFileName = DefaultInformation.file_name;
         var SetDefaultFileSize = DefaultInformation.file_size;
         var SetDefaultMimeType = DefaultInformation.mime_type;
         var SetDefaultExtension = DefaultInformation.extension;
@@ -439,7 +438,7 @@ public class AccountController : BaseController
             """, conn);
 
         cmd.Parameters.AddWithValue("id", RandId);
-        cmd.Parameters.AddWithValue("file_name", SetDefaultFileName);
+        cmd.Parameters.AddWithValue("file_name", SetDefaultStorageName);
         cmd.Parameters.AddWithValue("file_size", SetDefaultFileSize);
         cmd.Parameters.AddWithValue("mime_type", SetDefaultMimeType);
         cmd.Parameters.AddWithValue("storage_path", SetDefaultStoragePath);

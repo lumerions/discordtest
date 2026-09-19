@@ -19,7 +19,7 @@ public class DefaultAvatar
 
 public class SharedMethods
 {
-    private readonly EnvironmentService Envir;
+    private static EnvironmentService Envir;
     private static IConfiguration configuration;
     private static DefaultAvatar[] DefaultAvatarInformation = new DefaultAvatar[5];
     private static readonly Dictionary<int, string> ServerTagImageUrls = new()
@@ -193,7 +193,7 @@ public class SharedMethods
         return Totp.VerifyTotp(UserEnteredCode, out long timeStepMatched, VerificationWindow.RfcSpecifiedNetworkDelay);
     }
 
-    void InitializeDefaultAvatarInformation () 
+    public static void InitializeDefaultAvatarInformation () 
     {
         var MainProjectDir = Envir.GetEnvironmentPath();
         var DefaultAvatarsPath = Path.Combine(MainProjectDir, "defaultavatars");
@@ -220,7 +220,7 @@ public class SharedMethods
                     DefaultAvatarInformation[i] = new DefaultAvatar
                     {
                         mime_type = MimeType,
-                        extension = File.GetExtension(StringPath),
+                        extension = Path.GetExtension(StringPath),
                         file_size = FileSize
                     };
                 }

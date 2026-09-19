@@ -144,7 +144,7 @@ public class MainController : BaseController
             return Unauthorized();
         }
 
-        await mainhandler.UpdateConnections(Id, "no", "no", "no", "no", ConnectionVisible);
+        await mainhandler.UpdateConnections(Id, "no", "no", "no", "no", ConnectionVisible, null);
 
         return Ok(new
         {
@@ -167,7 +167,7 @@ public class MainController : BaseController
             return Unauthorized();
         }
 
-        await mainhandler.UpdateConnections(Id, "no", "no", "no", "notset", null);
+        await mainhandler.UpdateConnections(Id, "no", "no", "no", "notset", null, null);
 
         return Ok(new
         {
@@ -200,7 +200,7 @@ public class MainController : BaseController
             return Unauthorized();
         }
 
-        var StateValid = await mainhandler.StateValid(state, Id);
+        var StateValid = await mainhandler.StateValid(state, Id, null);
 
         if (!StateValid)
         {
@@ -253,7 +253,7 @@ public class MainController : BaseController
 
         var ChannelName = YTChannelInfo?.Snippet?.Title;
 
-        await mainhandler.UpdateConnections(Id, ChannelName, AccessToken, RefreshToken, YTChannelUrl, null);
+        await mainhandler.UpdateConnections(Id, ChannelName, AccessToken, RefreshToken, YTChannelUrl, null, null);
 
         return Ok(new
         {

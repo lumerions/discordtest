@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Internal.Database;
 using Internal.Shared;
+using Internal.Data;
 using Internal.ServerCont;
 using Internal.Messages;
 using Npgsql;
@@ -11,6 +12,7 @@ using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 using System.ComponentModel.Design;
+using Microsoft.Extensions.Configuration;
 
 namespace Internal.Main;
 
@@ -50,16 +52,20 @@ public class FriendRequest : Notification
 
 public class MainHandler
 {
+    private static IConfiguration configuration;
+    private readonly DataHandler datahandler;
     private readonly DatabaseHandler DBHandler;
     private readonly SharedMethods.WebSocketSessionManager Manager;
     private readonly ServersController ServerControll;
     private readonly MessageHandler MessageHand;
-    public MainHandler(MessageHandler MessageHand_, ServersController ServerController, DatabaseHandler databaseHandler, SharedMethods.WebSocketSessionManager manager)
+    public MainHandler(IConfiguration configuration_, MessageHandler MessageHand_, ServersController ServerController, DatabaseHandler databaseHandler, SharedMethods.WebSocketSessionManager manager, DataHandler datahandler_)
     {
         DBHandler = databaseHandler;
         Manager = manager;
         ServerControll = ServerController;
         MessageHand = MessageHand_;
+        datahandler = datahandler_;
+        configuration = configuration_;
     }
 
     public (bool IsOnline, WebSocket UserSocket) UserOnline (int UserId)
@@ -411,15 +417,16 @@ public class MainHandler
 
         await using var conn = await DBHandler.GetConnection();
 
+        var EncryptKey = configuration["Main:EncryptionKey"];
         var EncryptKeyBytes = Convert.FromBase64String(EncryptKey!);
         var EncryptionResultAccess = datahandler.Encrypt(AccessToken, EncryptKeyBytes);
-        var nonceAccess = EncryptionResult.nonce;
-        var ciphertextAccess = EncryptionResult.ciphertext;
-        var tagAccess = EncryptionResult.tag;
+        var nonceAccess = EncryptionResultAccess.nonce;
+        var ciphertextAccess = EncryptionResultAccess.ciphertext;
+        var tagAccess = EncryptionResultAccess.tag;
         var EncryptionResultRefresh = datahandler.Encrypt(RefreshToken, EncryptKeyBytes);
-        var nonceRefresh = EncryptionResult.nonce;
-        var ciphertextRefresh = EncryptionResult.ciphertext;
-        var tagRefresh = EncryptionResult.tag;
+        var nonceRefresh = EncryptionResultRefresh.nonce;
+        var ciphertextRefresh = EncryptionResultRefresh.ciphertext;
+        var tagRefresh = EncryptionResultRefresh.tag;
 
         var UpdateSQL = ConnectionName == "no" && AccessToken == "no" && RefreshToken == "no" && Url == "no" ? """
             UPDATE connections

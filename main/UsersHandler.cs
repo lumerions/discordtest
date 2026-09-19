@@ -15,6 +15,14 @@ public class DMConversationItem
     public bool is_group {get; set;}
 }
 
+public class DMConversationGroupChatMemberList
+{
+    public int user_id {get; set;}
+    public string username {get; set;}
+    public string server_tag_id {get; set;}
+    public string avatar_path {get; set;}
+}
+
 public class UsersHandler
 {   
     private readonly DatabaseHandler DBHandler;
@@ -400,5 +408,52 @@ public class UsersHandler
            Console.WriteLine(err);
            return false;
         }
+    }
+    // GC announcements
+    // "USER" changed the group name: "GROUPNAME"
+    // "USER" changed the group icon.
+    public async Task<List<DMConversationGroupChatMemberList>> GetMemberListDMS (Guid conversation_id)
+    {
+        var ConversationGCMembers = new List<DMConversationGroupChatMemberList>();
+        var Conn = await DBHandler.GetConnection();
+
+        try
+        {
+            var MemberListInformation = new NpgsqlCommand(
+                $"""
+                SELECT
+                    dcm.user_id,
+                    u.server_tag_id,
+                    u.username,
+                    au.storage_path
+                FROM dm_conversation_members AS dcm
+                JOIN users AS u
+                    ON u.id = dcm.user_id
+                LEFT JOIN avatar_uploads au 
+                    ON au.user_id = dcm.user_id
+                WHERE dcm.conversation_id = @conversation_id;
+                """
+            , Conn);
+
+            MemberListInformation.Parameters.AddWithValue("conversation_id", conversation_id);
+
+            await using var Reader = await MemberListInformation.ExecuteReaderAsync();
+            
+            while (await Reader.ReadAsync()) 
+            {
+                ConversationGCMembers.Add(new DMConversationGroupChatMemberList
+                {
+                    user_id = Reader.GetInt32(0),
+                    server_tag_id = Reader.GetString(1),
+                    username = Reader.GetString(2),
+                    avatar_path = Reader.GetString(3)
+                });
+            }
+        } catch (Exception err)
+        {
+           Console.WriteLine(err);
+        }
+
+        return ConversationGCMembers;
     }
 }
