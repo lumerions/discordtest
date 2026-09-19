@@ -1,14 +1,27 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
+using System.Linq;
+using System.IO;
 using OtpNet;
 using Microsoft.Extensions.Configuration;
+using Controllers.Environment;
+using Microsoft.AspNetCore.StaticFiles;
 
 namespace Internal.Shared;
 
+public class DefaultAvatar 
+{
+    public string mime_type {get; set;}
+    public string extension {get; set;}
+    public long file_size {get; set;}
+}
+
 public class SharedMethods
 {
+    private readonly EnvironmentService Envir;
     private static IConfiguration configuration;
+    private static DefaultAvatar[] DefaultAvatarInformation = new DefaultAvatar[5];
     private static readonly Dictionary<int, string> ServerTagImageUrls = new()
     {
         [1] = "https://discord.com"
@@ -37,12 +50,13 @@ public class SharedMethods
     private readonly WebSocketChannelIdConnections websocketconns_;
     private readonly ServerIdUserIdConnections ServerIdUserIdConnections_;
 
-    public SharedMethods(IConfiguration configuration_, WebSocketSessionManager manager, WebSocketChannelIdConnections  websocketconns, ServerIdUserIdConnections ServerIdUserIdConnectionn)
+    public SharedMethods(IConfiguration configuration_, EnvironmentService Envir_, WebSocketSessionManager manager, WebSocketChannelIdConnections  websocketconns, ServerIdUserIdConnections ServerIdUserIdConnectionn)
     {
         Manager = manager;
         websocketconns_ = websocketconns;
         configuration = configuration_;
         ServerIdUserIdConnections_ = ServerIdUserIdConnectionn;
+        Envir = Envir_;
     }
 
     public Dictionary<string, string> UploadsInfo ()
@@ -177,5 +191,45 @@ public class SharedMethods
         var SecretBytes = Base32Encoding.ToBytes(Secret);
         var Totp = new Totp(SecretBytes);
         return Totp.VerifyTotp(UserEnteredCode, out long timeStepMatched, VerificationWindow.RfcSpecifiedNetworkDelay);
+    }
+
+    void InitializeDefaultAvatarInformation () 
+    {
+        var MainProjectDir = Envir.GetEnvironmentPath();
+        var DefaultAvatarsPath = Path.Combine(MainProjectDir, "defaultavatars");
+        string[] AvatarDefaultPaths = Directory.GetFiles(DefaultAvatarsPath);
+        var provider = new FileExtensionContentTypeProvider();
+
+        for (var i = 0; i < AvatarDefaultPaths.Length; ++i) 
+        {
+            var StringPath = AvatarDefaultPaths[i];
+            FileInfo AvatarFileInfo = new FileInfo(StringPath);
+
+            if (AvatarFileInfo.Exists) 
+            {
+                var FileSize = AvatarFileInfo.Length;
+                var MimeType = "";
+
+                if (provider.TryGetContentType(StringPath, out var contentType))
+                {
+                    MimeType = contentType; 
+                }
+
+                if (MimeType.Length > 0) 
+                {
+                    DefaultAvatarInformation[i] = new DefaultAvatar
+                    {
+                        mime_type = MimeType,
+                        extension = File.GetExtension(StringPath),
+                        file_size = FileSize
+                    };
+                }
+            }
+        }
+    }
+
+    public static DefaultAvatar GetInfoOffIndex (int Index) 
+    {
+        return DefaultAvatarInformation[Index];
     }
 }

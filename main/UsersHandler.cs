@@ -6,6 +6,15 @@ using Npgsql;
 using Internal.Database;
 using Internal.Shared;
 
+public class DMConversationItem
+{
+    public Guid id {get; set;}
+    public string? dm_pair_key {get; set;}
+    public int owner_id {get; set;}
+    public string? name {get; set;}
+    public bool is_group {get; set;}
+}
+
 public class UsersHandler
 {   
     private readonly DatabaseHandler DBHandler;
@@ -307,6 +316,89 @@ public class UsersHandler
         {
            Console.WriteLine(err);
            return "Internal Server Error.";
+        }
+    }
+
+    public async Task<List<DMConversationItem>> GetConversations (int UserId)
+    {
+        var DMConvos = new List<DMConversationItem>();
+        var Conn = await DBHandler.GetConnection();
+
+        try
+        {
+            var UserConversations = new NpgsqlCommand(
+                $"""
+                    SELECT 
+                        c.id,
+                        c.is_group,
+                        c.name,
+                        c.owner_id,
+                        c.dm_pair_key,
+                        m2.user_id,
+                        u.username,
+                        u.server_tag_id,
+                        u.profile_status,
+                        au.storage_path
+                    FROM dm_conversation_members m
+                    JOIN dm_conversations c
+                        ON c.id = m.conversation_id
+                    JOIN dm_conversation_members m2
+                        ON m2.conversation_id = c.id
+                    JOIN users u
+                        ON u.id = m2.user_id
+                    LEFT JOIN avatar_uploads au 
+                        ON au.user_id = m2.user_id
+                    WHERE m.user_id = @user_id
+                    AND m.closed = FALSE;
+                """
+            , Conn);
+
+            UserConversations.Parameters.AddWithValue("user_id", UserId);
+
+            await using var Reader = await UserConversations.ExecuteReaderAsync();
+            
+            while (await Reader.ReadAsync()) 
+            {
+                DMConvos.Add(new DMConversationItem
+                {
+                    id = Reader.GetGuid(0),
+                    is_group = Reader.GetBoolean(1),
+                    name = Reader.IsDBNull(2) ? null : Reader.GetString(2),
+                    owner_id = Reader.GetInt32(3),
+                    dm_pair_key = Reader.IsDBNull(4) ? null : Reader.GetString(4)
+                });
+            }
+        } catch (Exception err)
+        {
+           Console.WriteLine(err);
+        }
+
+        return DMConvos;
+    }
+
+    public async Task<bool> CloseConversation (int UserId, Guid[] Conversation_Ids)
+    {
+        var Conn = await DBHandler.GetConnection();
+
+        try
+        {
+            var UserCloseConversations = new NpgsqlCommand(
+                $"""
+                    UPDATE dm_conversation_members
+                    SET closed = TRUE
+                    WHERE conversation_id = ANY($Conversation_Ids);
+                """
+            , Conn);
+
+            UserCloseConversations.Parameters.AddWithValue("Conversation_Ids", Conversation_Ids);
+
+            var CloseResult = await UserCloseConversations.ExecuteNonQueryAsync();
+            
+            return CloseResult > 0;
+        } catch (Exception err)
+        {
+           Console.WriteLine(err);
+           return false;
         }
     }
 }

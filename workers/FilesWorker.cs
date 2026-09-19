@@ -5,21 +5,24 @@ using System.Threading.Tasks;
 using Npgsql;
 using Internal.Database;
 using Internal.Shared;
+using Controllers.Environment;
 
 namespace Workers.FilesWorker;
 
 public class FilesWorker
 {
+    private readonly EnvironmentService Envir;
     private readonly SharedMethods Shared;
     private readonly DatabaseHandler DBHandler;
     private HashSet<string> MarkedForDeletion = new HashSet<string>();
 
     private HashSet<string> DeleteFilePaths = new HashSet<string>();
 
-    public FilesWorker (SharedMethods Shared_, DatabaseHandler DBHandler_)
+    public FilesWorker (EnvironmentService Envir_, SharedMethods Shared_, DatabaseHandler DBHandler_)
     {
         DBHandler = DBHandler_;
         Shared = Shared_;
+        Envir = Envir_;
     }
 
     public async Task RunFilesWorkerAsync ()
@@ -36,8 +39,9 @@ public class FilesWorker
             string[] FinalFilePaths = [];
 
             foreach (var (key, value) in Shared.UploadsInfo())
-            { // ill add the real paths eventually just temp for now 
-                var UploadDirectoryPath = Path.Combine(Directory.GetCurrentDirectory(), value);
+            {
+                var MainProjectDir = Envir.GetEnvironmentPath();
+                var UploadDirectoryPath = Path.Combine(MainProjectDir, value);
                 string[] UploadDirectoryFilePaths = Directory.GetFiles(UploadDirectoryPath);
 
                 for (int i = 0; i < UploadDirectoryFilePaths.Length; ++i)

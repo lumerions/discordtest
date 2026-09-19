@@ -10,6 +10,7 @@ using System.Threading.RateLimiting;
 using Internal.Shared;
 using Middleware.Csrf;
 using Middleware.Authenication;
+using Controllers.Environment;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -50,7 +51,9 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
+SharedMethods.InitializeDefaultAvatarInformation();
 builder.Services.AddHttpClient();
+builder.Services.AddTransient<IEnvironmentController, EnvironmentService>();
 builder.Services.AddSingleton<SharedMethods.ServerIdUserIdConnections>();
 builder.Services.AddSingleton<SharedMethods.WebSocketChannelIdConnections>();
 builder.Services.AddSingleton<RedisHandler>();

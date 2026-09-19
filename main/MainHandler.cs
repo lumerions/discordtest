@@ -401,32 +401,43 @@ public class MainHandler
         return true;
     }
 
-    public async Task<bool> UpdateConnections (int UserId, string? YoutubeName, string? AccessToken, string? RefreshToken, string? Url, bool? Visible)
+    public async Task<bool> UpdateConnections (int UserId, string? ConnectionName, string? AccessToken, string? RefreshToken, string? Url, bool? Visible, string? ConnectionType)
     {
-        if (YoutubeName == null) YoutubeName = "not set";
+        if (ConnectionName == null) ConnectionName = "not set";
         if (RefreshToken == null) RefreshToken = "";
         if (AccessToken == null) AccessToken = "";
         if (Url == null) Url = "";
+        if (ConnectionType == null) ConnectionType = "youtube";
 
         await using var conn = await DBHandler.GetConnection();
 
-        var UpdateSQL = YoutubeName == "no" && AccessToken == "no" && RefreshToken == "no" && Url == "no" ? """
+        var EncryptKeyBytes = Convert.FromBase64String(EncryptKey!);
+        var EncryptionResultAccess = datahandler.Encrypt(AccessToken, EncryptKeyBytes);
+        var nonceAccess = EncryptionResult.nonce;
+        var ciphertextAccess = EncryptionResult.ciphertext;
+        var tagAccess = EncryptionResult.tag;
+        var EncryptionResultRefresh = datahandler.Encrypt(RefreshToken, EncryptKeyBytes);
+        var nonceRefresh = EncryptionResult.nonce;
+        var ciphertextRefresh = EncryptionResult.ciphertext;
+        var tagRefresh = EncryptionResult.tag;
+
+        var UpdateSQL = ConnectionName == "no" && AccessToken == "no" && RefreshToken == "no" && Url == "no" ? """
             UPDATE connections
             SET visible = {Visible}
             WHERE connection_type = @connection_type AND user_id = @user_id;
         """ : """ 
             INSERT INTO connections
-                (user_id, name, url, connection_type, is_active, refresh_token, access_token)
+                (user_id, name, url, connection_type, is_active, refresh_token_ciphertext, refresh_token_tag, refresh_token_nonce, access_token_ciphertext, access_token_tag, access_token_nonce)
             VALUES
-                (@user_id, @name, @url, @connection_type, @is_active, @refresh_token, @access_token)
+                (@user_id, @name, @url, @connection_type, @is_active, @refresh_token_ciphertext, @refresh_token_tag, @refresh_token_nonce, @access_token_ciphertext, @access_token_tag, @access_token_nonce)
         """;
 
-        if (YoutubeName == "no" && AccessToken == "no" && RefreshToken == "no" && Url == "no")
+        if (ConnectionName == "no" && AccessToken == "no" && RefreshToken == "no" && Url == "no")
         {
             await using var cmd = new NpgsqlCommand(UpdateSQL, conn);
 
             cmd.Parameters.AddWithValue("user_id", UserId);
-            cmd.Parameters.AddWithValue("connection_type", "youtube");
+            cmd.Parameters.AddWithValue("connection_type", ConnectionType);
 
             await cmd.ExecuteNonQueryAsync();
         } else
@@ -434,11 +445,15 @@ public class MainHandler
             await using var cmd = new NpgsqlCommand(UpdateSQL, conn);
 
             cmd.Parameters.AddWithValue("user_id", UserId);
-            cmd.Parameters.AddWithValue("name", YoutubeName);
+            cmd.Parameters.AddWithValue("name", ConnectionName);
             cmd.Parameters.AddWithValue("url", Url);
-            cmd.Parameters.AddWithValue("connection_type", "youtube");
-            cmd.Parameters.AddWithValue("refresh_token", RefreshToken);
-            cmd.Parameters.AddWithValue("access_token", AccessToken);
+            cmd.Parameters.AddWithValue("connection_type", ConnectionType);
+            cmd.Parameters.AddWithValue("refresh_token_ciphertext", ciphertextRefresh);
+            cmd.Parameters.AddWithValue("refresh_token_tag", tagRefresh);
+            cmd.Parameters.AddWithValue("refresh_token_nonce", nonceRefresh);
+            cmd.Parameters.AddWithValue("access_token_ciphertext", ciphertextAccess);
+            cmd.Parameters.AddWithValue("access_token_tag", tagAccess);
+            cmd.Parameters.AddWithValue("access_token_nonce", nonceAccess);
             cmd.Parameters.AddWithValue("is_active", false);
 
             await cmd.ExecuteNonQueryAsync();
@@ -464,8 +479,10 @@ public class MainHandler
         return QueryHelpers.AddQueryString("https://accounts.google.com/o/oauth2/v2/auth", query);
     }
 
-    public async Task<bool> StateValid (string StateCode, int UserId)
+    public async Task<bool> StateValid (string StateCode, int UserId, string? ConnectionType)
     {
+        if (ConnectionType == null) ConnectionType = "youtube";
+
         await using var conn = await DBHandler.GetConnection();
 
         await using var cmd = new NpgsqlCommand($"""
@@ -474,7 +491,7 @@ public class MainHandler
         """, conn);
 
         cmd.Parameters.AddWithValue("user_id", UserId);
-        cmd.Parameters.AddWithValue("connection_type", "youtube");
+        cmd.Parameters.AddWithValue("connection_type", ConnectionType);
 
         await using var reader = await cmd.ExecuteReaderAsync();
 

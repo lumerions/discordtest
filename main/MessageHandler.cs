@@ -1,4 +1,3 @@
-
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -76,7 +75,7 @@ public class MessageHandler
 
             var MessageId = (Guid) result;
 
-            async Task SendMessage(int UserId)
+            async Task SendMessage (int UserId)
             {
                 if (Manager.Users.TryGetValue(UserId.ToString(), out var UserSocket))
                 { 

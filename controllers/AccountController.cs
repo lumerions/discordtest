@@ -377,32 +377,72 @@ public class AccountController : BaseController
         var nonce = EncryptionResult.nonce;
         var ciphertext = EncryptionResult.ciphertext;
         var tag = EncryptionResult.tag;
+        var RandInt = RandomNumberGenerator.GetInt32(1, 5);
+        var RandId = Guid.NewGuid();
+        var DefaultInformation = SharedMethods.GetInfoOffIndex(RandInt);
+        var SetDefaultFileName = DefaultInformation.file_name;
+        var SetDefaultFileSize = DefaultInformation.file_size;
+        var SetDefaultMimeType = DefaultInformation.mime_type;
+        var SetDefaultExtension = DefaultInformation.extension;
+        var SetDefaultStorageName = $"{RandId}{SetDefaultExtension}";
+        var SetDefaultStoragePath = $"{"avatar_uploads"}/{SetDefaultStorageName}";
 
         await using var conn = await DBHandler.GetConnection();
         await using var cmd = new NpgsqlCommand("""
-            INSERT INTO users (
-                email_lookup,
-                username,
-                display_name,
-                dob,
-                password_hash,
-                nonce,
-                tag,
-                ciphertext
+            WITH users_write AS (
+                INSERT INTO users (
+                    email_lookup,
+                    username,
+                    display_name,
+                    dob,
+                    password_hash,
+                    nonce,
+                    tag,
+                    ciphertext
+                )
+                VALUES (
+                    @email_lookup,
+                    @username,
+                    @username,
+                    @dob,
+                    @password_hash,
+                    @nonce,
+                    @tag,
+                    @ciphertext
+                )
+                RETURNING id
+            ),
+            avatar_uploads_write AS (
+                INSERT INTO avatar_uploads (
+                    id,
+                    user_id,
+                    file_name,
+                    file_size,
+                    mime_type,
+                    storage_path
+                )
+                SELECT
+                    @id,
+                    users_write.id,
+                    @file_name,
+                    @file_size,
+                    @mime_type,
+                    @storage_path
+                FROM users_write
+                RETURNING id
             )
-            VALUES (
-                @email_lookup,
-                @username,
-                @username,
-                @dob,
-                @password_hash,
-                @nonce,
-                @tag,
-                @ciphertext
-            )
-            RETURNING id;
+            SELECT
+                avatar_uploads_write.id AS avatar_id,
+                users_write.id AS user_id
+            FROM users_write
+            CROSS JOIN avatar_uploads_write;
             """, conn);
 
+        cmd.Parameters.AddWithValue("id", RandId);
+        cmd.Parameters.AddWithValue("file_name", SetDefaultFileName);
+        cmd.Parameters.AddWithValue("file_size", SetDefaultFileSize);
+        cmd.Parameters.AddWithValue("mime_type", SetDefaultMimeType);
+        cmd.Parameters.AddWithValue("storage_path", SetDefaultStoragePath);
         cmd.Parameters.AddWithValue("email_lookup", EmailHmacSha256);
         cmd.Parameters.AddWithValue("dob", DOBString);
         cmd.Parameters.AddWithValue("username", Username);

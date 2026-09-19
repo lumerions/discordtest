@@ -159,12 +159,34 @@ public class Server
             return false;
         }
     }
-    public async Task<bool> CreateServerRole(string RoleName, int Color, bool Separated, int Position, long Permissions)
+    public async Task<bool> AddAdjustServerRole(Guid server_id, string RoleName, int Color, bool Separated, int Position, long Permissions, bool EditRole)
     {
         try
         {
+            var SQL = EditRole == false ? """
+                INSERT INTO server_roles
+                    (server_id, name, color, position, separated, permissions)
+                VALUES
+                    (@server_id, @name, @color, @position, @separated, @permissions)
+                RETURNING id;
+                """ :
+                """
+                UPDATE server_roles
+                SET
+                    server_id = @server_id,
+                    name = @name,
+                    color = @color,
+                    position = @position,
+                    permissions = @permissions,
+                    separated = @separated
+                WHERE id = @id
+                RETURNING id;
+                """;
+
             await using var conn = await DBHandler.GetConnection();
-            await using var cmd = new NpgsqlCommand("INSERT INTO server_roles (name, color, position, separated, permissions) VALUES (@name, @color, @position, @separated, @permissions) RETURNING id;",conn);
+            await using var cmd = new NpgsqlCommand(SQL, conn);
+
+            cmd.Parameters.AddWithValue("server_id", server_id);
             cmd.Parameters.AddWithValue("name", RoleName);
             cmd.Parameters.AddWithValue("color", Color);
             cmd.Parameters.AddWithValue("position", Position);

@@ -88,14 +88,26 @@ CREATE TABLE IF NOT EXISTS role_icon_uploads (
 CREATE TABLE IF NOT EXISTS dm_conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     is_group BOOLEAN NOT NULL DEFAULT FALSE,
+    name VARCHAR(100),
+    owner_id INTEGER,
+    dm_pair_key TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_dm_pair
+ON dm_conversations (dm_pair_key)
+WHERE is_group = FALSE
+  AND dm_pair_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS dm_conversation_members (
     conversation_id UUID NOT NULL REFERENCES dm_conversations(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL,
+    closed BOOLEAN NOT NULL DEFAULT TRUE,
     PRIMARY KEY (conversation_id, user_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_dm_members_user
+ON dm_conversation_members (user_id, conversation_id);
 
 CREATE TABLE IF NOT EXISTS dm_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -371,10 +383,14 @@ CREATE TABLE IF NOT EXISTS connections (
     name VARCHAR(100) NOT NULL,
     url VARCHAR(255) NOT NULL,
     connection_type VARCHAR(50) DEFAULT 'none',
-    refresh_token VARCHAR(255) NOT NULL,
-    access_token VARCHAR(255) NOT NULL,
     statee VARCHAR(255) NOT NULL,
     visible BOOLEAN DEFAULT TRUE,
+    refresh_token_ciphertext BYTEA NOT NULL,
+    refresh_token_tag       BYTEA NOT NULL,
+    refresh_token_nonce      BYTEA NOT NULL,
+    access_token_ciphertext  BYTEA NOT NULL,
+    access_token_tag         BYTEA NOT NULL,
+    access_token_nonce       BYTEA NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
 );
 

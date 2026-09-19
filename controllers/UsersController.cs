@@ -4,6 +4,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Internal.Database;
 using Internal.Shared;
 using Controllers.ControllBase;
@@ -20,11 +21,13 @@ public class UsersController : BaseController
 {
     private readonly DatabaseHandler DBHandler;
     private readonly SharedMethods Shared;
+    private readonly IWebHostEnvironment IWeb;
 
-    public UsersController(DatabaseHandler DBHandler_, SharedMethods Shared_)
+    public UsersController(IWebHostEnvironment IWeb_, DatabaseHandler DBHandler_, SharedMethods Shared_)
     {
         DBHandler = DBHandler_;
         Shared = Shared_;
+        IWeb = IWeb_;
     }
 
     [Authorize]
@@ -59,7 +62,8 @@ public class UsersController : BaseController
             if (!SharedMethods.AllowedExtension(Extension)) return BadRequest("This file extension isn't supported.");
             if (!SharedMethods.IsAllowedMime(file.ContentType)) return BadRequest("This mime type isn't supported.");
 
-            var AvatarImagesPath = Path.Combine(Directory.GetCurrentDirectory(), TypeInfoValue);
+            var MainWebsiteContentPath = IWeb.ContentRootPath;
+            var AvatarImagesPath = Path.Combine(MainWebsiteContentPath, TypeInfoValue);
             Directory.CreateDirectory(AvatarImagesPath);       
             var NewAvatarImageId = Guid.NewGuid(); 
             var NewAvatarImageName = $"{NewAvatarImageId}{Extension}";
