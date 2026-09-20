@@ -159,7 +159,7 @@ public class Server
             return false;
         }
     }
-    public async Task<bool> AddAdjustServerRole(Guid server_id, string RoleName, int Color, bool Separated, int Position, long Permissions, bool EditRole)
+    public async Task<bool> AddAdjustServerRole(Guid server_id, string RoleName, int Color, bool Separated, int Position, long Permissions, bool EditRole, int RoleId)
     {
         try
         {
@@ -186,6 +186,7 @@ public class Server
             await using var conn = await DBHandler.GetConnection();
             await using var cmd = new NpgsqlCommand(SQL, conn);
 
+            cmd.Parameters.AddWithValue("id", RoleId);
             cmd.Parameters.AddWithValue("server_id", server_id);
             cmd.Parameters.AddWithValue("name", RoleName);
             cmd.Parameters.AddWithValue("color", Color);
@@ -211,9 +212,9 @@ public class Server
                 WHERE user_id = @user_id
                 AND server_id = @server_id;
 
-                SELECT is_revoked, id
+                SELECT is_revoked
                 FROM server_invites
-                WHERE id = @InviteCode
+                WHERE code = @InviteCode
                 AND (expires_at IS NULL OR expires_at > NOW())
                 AND (max_uses = 32000 OR uses < max_uses);
 
@@ -226,8 +227,6 @@ public class Server
             IsBannedCommand.Parameters.AddWithValue("server_id", ServerId);
             IsBannedCommand.Parameters.AddWithValue("InviteCode", InviteCode);
             await using var reader = await IsBannedCommand.ExecuteReaderAsync();
-
-            var InviteId = Guid.Empty;
 
             if (await reader.ReadAsync())
             {
@@ -243,9 +242,8 @@ public class Server
                 }
 
                 var isRevoked = reader.GetBoolean(0);
-                InviteId = reader.GetGuid(1);
 
-                if (isRevoked )
+                if (isRevoked)
                 {
                     return "Invites are paused for this server";
                 }
@@ -275,7 +273,7 @@ public class Server
                             uses_update AS (
                                 UPDATE server_invites
                                 SET uses = uses + 1
-                                WHERE id = @InviteId
+                                WHERE code = @InviteCode
                             )
                             SELECT server_members_write.joined_at
                             FROM server_members_write;
@@ -285,7 +283,7 @@ public class Server
                         var SystemChannelId = reader.GetGuid(0);
 
                         joinServerCommand.Parameters.AddWithValue("user_id", JoinerId);
-                        joinServerCommand.Parameters.AddWithValue("user_id", JoinerId);
+                        joinServerCommand.Parameters.AddWithValue("InviteCode", InviteCode);
                         joinServerCommand.Parameters.AddWithValue("server_id", ServerId);
                         joinServerCommand.Parameters.AddWithValue("nickname", JoinerUsername);
                         await reader.DisposeAsync();
@@ -661,72 +659,79 @@ public class Server
 
     public async Task<List<Members>> GetMemberList (Guid ServerId, Guid? LastId, int? LastPosition)
     {
-        await using var conn = await DBHandler.GetConnection();
-        string MemberGetSql = LastId == null ? @"
-            SELECT 
-                sr.id,
-                sr.user_id,
-                sr.position,
-                sr.name,
-                sr.color,
-                sr.permissions,
-                u.username
-            FROM server_roles sr
-            JOIN users u ON u.id = sr.user_id
-            WHERE sr.server_id = @serverId
-            ORDER BY sr.position DESC, sr.id DESC
-            LIMIT 50;" : @"
-            SELECT 
-                sr.id,
-                sr.user_id,
-                sr.position,
-                sr.name,
-                sr.color,
-                sr.permissions,
-                u.username
-            FROM server_roles sr
-            JOIN users u ON u.id = sr.user_id
-            WHERE sr.server_id = @serverId
-            AND (
-                sr.position < @lastPosition
-                OR (sr.position = @lastPosition AND sr.id < @lastId)
-            )
-            ORDER BY sr.position DESC, sr.id DESC
-            LIMIT 50;
-        ";
-
-        await using var cmd = new NpgsqlCommand(MemberGetSql, conn);
-        cmd.Parameters.AddWithValue("serverId", ServerId);
-
-        if (LastId != null)
-        {
-            cmd.Parameters.AddWithValue("lastPosition", LastPosition);
-            cmd.Parameters.AddWithValue("lastId", LastId);
-        }
-
-        await using var reader = await cmd.ExecuteReaderAsync();
         var RoleList = new List<Members>();
 
-        while (await reader.ReadAsync())
-        {
-            var RoleId = reader.GetGuid(0);
-            var RoleHolderId = reader.GetInt32(1);
-            var RolePosition = reader.GetInt32(2);
-            var RoleName = reader.GetString(3);
-            var RoleColor = reader.GetInt32(4);
-            var Permissions = reader.GetInt64(5);
-            var RoleHolderUsername = reader.GetString(6);
+        try {
+            await using var conn = await DBHandler.GetConnection();
+            string MemberGetSql = LastId == null ? @"
+                SELECT 
+                    sr.id,
+                    sr.user_id,
+                    sr.position,
+                    sr.name,
+                    sr.color,
+                    sr.permissions,
+                    u.username
+                FROM server_roles sr
+                JOIN users u ON u.id = sr.user_id
+                WHERE sr.server_id = @serverId
+                ORDER BY sr.position DESC, sr.id DESC
+                LIMIT 50;" : @"
+                SELECT 
+                    sr.id,
+                    sr.user_id,
+                    sr.position,
+                    sr.name,
+                    sr.color,
+                    sr.permissions,
+                    u.username
+                FROM server_roles sr
+                JOIN users u ON u.id = sr.user_id
+                WHERE sr.server_id = @serverId
+                AND (
+                    sr.position < @lastPosition
+                    OR (sr.position = @lastPosition AND sr.id < @lastId)
+                )
+                ORDER BY sr.position DESC, sr.id DESC
+                LIMIT 50;
+            ";
 
-            RoleList.Add(new Members
-            (
-                RoleId,
-                RoleHolderId,
-                RolePosition,
-                RoleName,
-                RoleColor,
-                Permissions,
-                RoleHolderUsername
-            ));
+            await using var cmd = new NpgsqlCommand(MemberGetSql, conn);
+            cmd.Parameters.AddWithValue("serverId", ServerId);
+
+            if (LastId != null)
+            {
+                cmd.Parameters.AddWithValue("lastPosition", LastPosition);
+                cmd.Parameters.AddWithValue("lastId", LastId);
+            }
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+
+            while (await reader.ReadAsync())
+            {
+                var RoleId = reader.GetGuid(0);
+                var RoleHolderId = reader.GetInt32(1);
+                var RolePosition = reader.GetInt32(2);
+                var RoleName = reader.GetString(3);
+                var RoleColor = reader.GetInt32(4);
+                var Permissions = reader.GetInt64(5);
+                var RoleHolderUsername = reader.GetString(6);
+
+                RoleList.Add(new Members
+                (
+                    RoleId,
+                    RoleHolderId,
+                    RolePosition,
+                    RoleName,
+                    RoleColor,
+                    Permissions,
+                    RoleHolderUsername
+                ));
+            }
+
+        } catch (Exception err) {
+            Console.WriteLine(err);
+            return RoleList;
         }
 
         return RoleList;
@@ -818,83 +823,99 @@ public class Server
 
     public async Task<long> GetPermissionNumber (Guid ServerId, int UserId)
     {
-        await using var conn = await DBHandler.GetConnection();
-        await using var cmd = new NpgsqlCommand(@"
-            SELECT bit_or(permissions) AS effective_permissions
-            FROM server_roles
-            WHERE user_id = @user_id
-            AND server_id = @server_id;
-        ", conn);
+        try {
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(@"
+                SELECT bit_or(permissions) AS effective_permissions
+                FROM server_roles
+                WHERE user_id = @user_id
+                AND server_id = @server_id;
+            ", conn);
 
-        cmd.Parameters.AddWithValue("server_id", ServerId);
-        cmd.Parameters.AddWithValue("user_id", UserId);
+            cmd.Parameters.AddWithValue("server_id", ServerId);
+            cmd.Parameters.AddWithValue("user_id", UserId);
 
-        await using var reader = await cmd.ExecuteReaderAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
 
-        if (!await reader.ReadAsync())
-        {
+            if (!await reader.ReadAsync())
+            {
+                return 0;
+            }
+
+            var PermissionsNumber = reader.GetInt64(0);
+
+            return PermissionsNumber;
+        } catch (Exception err) {
+            Console.WriteLine(err);
             return 0;
         }
-
-        var PermissionsNumber = reader.GetInt64(0);
-
-        return PermissionsNumber;
     }
 
     public async Task<bool> ChangeChannelIdWebhook (Guid ChannelId, Guid ServerId, int ChangerUserId, Guid WebhookId)
     {
-        var PermissionsNumber = await GetPermissionNumber(ServerId, ChangerUserId);
-        var Perm = (Permissions) PermissionsNumber;
-        var CanMakeWebhooks = (Perm & Permissions.Administrator) != 0;
+        try {
+            var PermissionsNumber = await GetPermissionNumber(ServerId, ChangerUserId);
+            var Perm = (Permissions) PermissionsNumber;
+            var CanMakeWebhooks = (Perm & Permissions.Administrator) != 0;
 
-        if (!CanMakeWebhooks)
-        {
+            if (!CanMakeWebhooks)
+            {
+                return false;
+            }
+
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(@"
+                UPDATE server_channels_webhooks SET channel_id = @channel_id WHERE id = @id RETURNING id;
+            ", conn);
+
+            cmd.Parameters.AddWithValue("id", WebhookId);
+            cmd.Parameters.AddWithValue("channel_id", ChannelId);
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+
+            if (!await reader.ReadAsync())
+            {
+                return false;
+            }
+        } catch (Exception err) {
+            Console.WriteLine(err);
             return false;
         }
-
-        await using var conn = await DBHandler.GetConnection();
-        await using var cmd = new NpgsqlCommand(@"
-            UPDATE server_channels_webhooks SET channel_id = @channel_id WHERE id = @id RETURNING id;
-        ", conn);
-
-        cmd.Parameters.AddWithValue("id", WebhookId);
-        cmd.Parameters.AddWithValue("channel_id", ChannelId);
-
-        await using var reader = await cmd.ExecuteReaderAsync();
-
-        if (!await reader.ReadAsync())
-        {
-            return false;
-        }
-
+  
         return true;
     }
 
     public async Task<bool> AddChannelWebhook (Guid ChannelId, Guid ServerId, int ChangerUserId)
     {
-        var PermissionsNumber = await GetPermissionNumber(ServerId, ChangerUserId);
-        var Perm = (Permissions) PermissionsNumber;
-        var CanMakeWebhooks = (Perm & Permissions.Administrator) != 0;
+        try {
+            var PermissionsNumber = await GetPermissionNumber(ServerId, ChangerUserId);
+            var Perm = (Permissions) PermissionsNumber;
+            var CanMakeWebhooks = (Perm & Permissions.Administrator) != 0;
 
-        if (!CanMakeWebhooks)
-        {
-            return false;
-        }
+            if (!CanMakeWebhooks)
+            {
+                return false;
+            }
 
-        await using var conn = await DBHandler.GetConnection();
-        await using var cmd = new NpgsqlCommand(@"
-            INSERT INTO server_channels_webhooks (creator_id, channel_id) 
-            VALUES (@ChangerUserId, @ChannelId)
-            RETURNING id;
-        ", conn);
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(@"
+                INSERT INTO server_channels_webhooks (creator_id, channel_id) 
+                VALUES (@ChangerUserId, @ChannelId)
+                RETURNING id;
+            ", conn);
 
-        cmd.Parameters.AddWithValue("ChannelId", ChannelId);
-        cmd.Parameters.AddWithValue("ChangerUserId", ChangerUserId);
+            cmd.Parameters.AddWithValue("ChannelId", ChannelId);
+            cmd.Parameters.AddWithValue("ChangerUserId", ChangerUserId);
 
-        await using var reader = await cmd.ExecuteReaderAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
 
-        if (!await reader.ReadAsync())
-        {
+            if (!await reader.ReadAsync())
+            {
+                return false;
+            }
+
+        } catch (Exception err) {
+            Console.WriteLine(err);
             return false;
         }
 
@@ -903,30 +924,33 @@ public class Server
 
     public async Task<bool> SendChannelWebhookMessage (Guid WebhookId, string WebhookMessage)
     {
-        await using var conn = await DBHandler.GetConnection();
-        await using var cmd = new NpgsqlCommand(@"
-            SELECT 
-                SCW.channel_id,
-                SC.server_id
-            FROM server_channels_webhooks AS SCW
-            JOIN server_channels AS SC
-                ON SCW.channel_id = SC.id
-            WHERE SCW.id = @id;
-        ", conn);
+        try {
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(@"
+                SELECT 
+                    SCW.channel_id
+                FROM server_channels_webhooks AS SCW
+                JOIN server_channels AS SC
+                    ON SCW.channel_id = SC.id
+                WHERE SCW.id = @id;
+            ", conn);
 
-        cmd.Parameters.AddWithValue("id", WebhookId);
+            cmd.Parameters.AddWithValue("id", WebhookId);
 
-        await using var reader = await cmd.ExecuteReaderAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
 
-        if (!await reader.ReadAsync())
-        {
+            if (!await reader.ReadAsync())
+            {
+                return false;
+            }
+
+            var ChannelId = reader.GetGuid(0);
+
+            await MsgHandler.SendMessageInServer(WebhookMessage, 5, ChannelId, "", true, null, "s");
+        } catch (Exception err) {
+            Console.WriteLine(err);
             return false;
         }
-
-        var ChannelId = reader.GetGuid(0);
-        var ServerId = reader.GetGuid(1);
-
-        await MsgHandler.SendMessageInServer(WebhookMessage, 5, ChannelId, "", true, null, "s");
 
         return true;
     }
@@ -1206,11 +1230,10 @@ public class Server
         }
     }
 
-    public async Task<bool> PinMessage (Guid ServerId, Guid MessageId, int ChangerId, bool PrivateMessage, Guid? PrivateMessageId)
+    public async Task<bool> PinMessage (Guid ServerId, Guid MessageId, int ChangerId, int RecieverId, bool PrivateMessage, Guid? PrivateMessageId)
     {
         try
         {
-            var TableName = "";
             var UpdateSql = "";
 
             if (!PrivateMessage) {
@@ -1223,23 +1246,27 @@ public class Server
                     return false;
                 }
 
-                TableName = "server_pins";
-                UpdateSql = $"""
-                    INSERT INTO {TableName} (message_id, server_id)
+                UpdateSql = """
+                    INSERT INTO server_pins (message_id, server_id)
                     VALUES (@message_id, @server_id);
 
-                    DELETE FROM {TableName}
+                    DELETE FROM server_pins
                     WHERE id = (
-                        SELECT id FROM {TableName} 
-                        WHERE (SELECT COUNT(*) FROM {TableName}) > 50
+                        SELECT id
+                        FROM server_pins
+                        WHERE server_id = @server_id
                         ORDER BY id ASC
                         LIMIT 1
-                    );
+                    )
+                    AND (
+                        SELECT COUNT(*)
+                        FROM server_pins
+                        WHERE server_id = @server_id
+                    ) > 50;
                 """;
-
             } else
             {
-                UpdateSql = $"""
+                UpdateSql = """
                     INSERT INTO pm_pins (message_id, sender_id, receiver_id)
                     SELECT id, sender_id, receiver_id
                     FROM private_messages
@@ -1249,10 +1276,17 @@ public class Server
                     WHERE id = (
                         SELECT id
                         FROM pm_pins
-                        WHERE (SELECT COUNT(*) FROM pm_pins) > 50
+                        WHERE sender_id = @sender_id
+                        AND receiver_id = @receiver_id
                         ORDER BY id ASC
                         LIMIT 1
-                    );
+                    )
+                    AND (
+                        SELECT COUNT(*)
+                        FROM pm_pins
+                        WHERE sender_id = @sender_id
+                        AND receiver_id = @receiver_id
+                    ) > 50;
                 """;
             }
 
@@ -1263,6 +1297,8 @@ public class Server
                         cmd.Parameters.AddWithValue("server_id", ServerId);
                     } else
                     {
+                        cmd.Parameters.AddWithValue("sender_id", ChangerId);
+                        cmd.Parameters.AddWithValue("receiver_id", RecieverId);
                         cmd.Parameters.AddWithValue("private_message_id", PrivateMessageId);
                     }
                     cmd.Parameters.AddWithValue("message_id", MessageId);
@@ -1331,7 +1367,7 @@ public class Server
                     (SELECT COUNT(*)
                     FROM server_members
                     WHERE server_id = @ServerId) AS member_count,
-                    (SELECT array_agg(channel_name)
+                    (SELECT array_agg(name)
                     FROM server_channels
                     WHERE server_id = @ServerId) AS channel_names,
                     (SELECT COUNT(*)
@@ -1483,7 +1519,7 @@ public class Server
                     last_read_message_id = EXCLUDED.last_read_message_id,
                     last_read_at = NOW();
                 """ : $"""
-                SELECT *
+                SELECT id, sender_id, message_content, created_at, edited, picture_path
                 FROM {TableName}
                 WHERE channel_id = @ChannelId
                 AND (
@@ -1502,6 +1538,11 @@ public class Server
 
             cmd.Parameters.AddWithValue("ChannelId", ChannelId);
 
+            if (InitGet == true) 
+            {
+                cmd.Parameters.AddWithValue("UserId", ViewId);
+            }
+
             if (LastCursor != null)
             {
                 cmd.Parameters.AddWithValue("BeforeId", LastMessageId!);
@@ -1517,7 +1558,7 @@ public class Server
                 var message_content = reader.IsDBNull(2) ? "" : reader.GetString(2);
                 var created_at = reader.GetDateTime(3);
                 var edited = reader.GetBoolean(4);
-                var Picture_Path = reader.GetString(5);
+                var Picture_Path = reader.IsDBNull(5) ? "" : reader.GetString(5);
 
                 Messages.Add(new Message
                 (
@@ -1744,7 +1785,6 @@ public class Server
             """, conn);
 
             cmd.Parameters.AddWithValue("server_event_id", EventId);
-            cmd.Parameters.AddWithValue("server_id", ServerId);
 
             var Result = await cmd.ExecuteScalarAsync();
 
@@ -1786,7 +1826,7 @@ public class Server
 
             if (Result == null)
             {
-                return "Failed to cancel event, please try again later.";
+                return "Failed to start event, please try again later.";
             }
 
             return "Success";
