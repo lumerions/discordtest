@@ -254,23 +254,13 @@ CREATE TABLE IF NOT EXISTS private_message_reads (
     PRIMARY KEY (user_id, conversation_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (conversation_id) REFERENCES private_conversations(id) ON DELETE CASCADE,
-    FOREIGN KEY (last_read_message_id) REFERENCES private_messages(id) ON DELETE SET NULL
+    FOREIGN KEY (last_read_message_id) REFERENCES dm_messages(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS server_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     channel_id UUID NOT NULL REFERENCES server_channels(id) ON DELETE CASCADE,
     sender_id INTEGER NOT NULL,
-    message_content TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    edited BOOLEAN DEFAULT FALSE,
-    picture_path TEXT
-);
-
-CREATE TABLE IF NOT EXISTS private_messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sender_id INTEGER NOT NULL,
-    receiver_id INTEGER NOT NULL,
     message_content TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     edited BOOLEAN DEFAULT FALSE,
@@ -287,7 +277,7 @@ CREATE TABLE IF NOT EXISTS reaction_uploads (
 );
 
 CREATE TABLE IF NOT EXISTS private_message_reactions (
-    message_id UUID NOT NULL REFERENCES private_messages(id) ON DELETE CASCADE,
+    message_id UUID NOT NULL REFERENCES dm_messages(id) ON DELETE CASCADE,
     reaction_id UUID NOT NULL REFERENCES reaction_uploads(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -309,7 +299,7 @@ CREATE TABLE IF NOT EXISTS server_message_mentions (
 );
 
 CREATE TABLE IF NOT EXISTS pm_pins (
-    message_id UUID NOT NULL REFERENCES private_messages(id) ON DELETE CASCADE,
+    message_id UUID NOT NULL REFERENCES dm_messages(id) ON DELETE CASCADE,
     sender_id INTEGER NOT NULL,
     receiver_id INTEGER NOT NULL
 );

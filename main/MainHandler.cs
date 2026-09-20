@@ -50,6 +50,14 @@ public class FriendRequest : Notification
     public string Username {get; set;}
 }
 
+public class FriendList
+{
+    public int ProfileStatus {get; set;}
+    public string Username {get; set;}
+    public string ServerTag_Id {get; set;}
+    public string? Avatar_Upload {get; set;}
+}
+
 public class MainHandler
 {
     private static IConfiguration configuration;
@@ -58,7 +66,7 @@ public class MainHandler
     private readonly SharedMethods.WebSocketSessionManager Manager;
     private readonly ServersController ServerControll;
     private readonly MessageHandler MessageHand;
-    public MainHandler(IConfiguration configuration_, MessageHandler MessageHand_, ServersController ServerController, DatabaseHandler databaseHandler, SharedMethods.WebSocketSessionManager manager, DataHandler datahandler_)
+    public MainHandler (IConfiguration configuration_, MessageHandler MessageHand_, ServersController ServerController, DatabaseHandler databaseHandler, SharedMethods.WebSocketSessionManager manager, DataHandler datahandler_)
     {
         DBHandler = databaseHandler;
         Manager = manager;
@@ -77,7 +85,8 @@ public class MainHandler
 
         return (true, null);
     }
-    public async Task<ProfileInfo> GetProfileInfo(int UserId, int ViewerId, int? ServerId)
+
+    public async Task<ProfileInfo> GetProfileInfo (int UserId, int ViewerId, int? ServerId)
     {
         string SQL = ServerId == null
             ? @"SELECT username, about_me, is_banned, created_at
@@ -284,6 +293,83 @@ public class MainHandler
         };
 
         return ProfileInformation;
+    }
+
+    public async Task<List<FriendList>> CursorGetFriends (int UserId, int? CursorFriendId, int Limit)
+    {
+        var FriendsList = new List<FriendList>();
+
+        try {
+            if (Limit <= 0 || Limit > 50) Limit = 50;
+
+            string SQL = """ 
+                SELECT 
+                    CASE 
+                        WHEN f.user_id = @UserId THEN f.friend_id
+                        ELSE f.user_id
+                    END AS friend_id,
+
+                    u.username,
+                    u.server_tag_id,
+                    u.profile_status,
+                    au.storage_path,
+                    f.created_at
+
+                FROM friends AS f
+
+                JOIN users AS u
+                    ON u.id = CASE
+                        WHEN f.user_id = @UserId THEN f.friend_id
+                        ELSE f.user_id
+                    END
+
+                LEFT JOIN avatar_uploads AS au
+                    ON au.user_id = u.id
+
+                WHERE 
+                    (f.user_id = @UserId OR f.friend_id = @UserId)
+                    AND (
+                        @CursorFriendId IS NULL
+                        OR CASE
+                            WHEN f.user_id = @UserId THEN f.friend_id
+                            ELSE f.user_id
+                        END > @CursorFriendId
+                    )
+
+                ORDER BY friend_id ASC
+                LIMIT @Limit;
+            """;
+
+            await using var conn = await DBHandler.GetConnection();
+            await using var cmd = new NpgsqlCommand(SQL, conn);
+
+            cmd.Parameters.AddWithValue("UserId", UserId);
+            cmd.Parameters.AddWithValue("CursorFriendId", CursorFriendId);
+            cmd.Parameters.AddWithValue("Limit", Limit);
+
+            await using var Reader = await cmd.ExecuteReaderAsync();
+
+            while (await Reader.ReadAsync()) 
+            {
+                var Username = Reader.GetString(1);
+                var ServerTag_Id = Reader.GetString(2);
+                var Profile_Status = Reader.GetInt32(3);
+                var Storage_Path = Reader.IsDBNull(4) ? null : Reader.GetString(4);
+
+                FriendsList.Add(new FriendList
+                {
+                    Username = Username,
+                    ServerTag_Id = ServerTag_Id,
+                    ProfileStatus = Profile_Status,
+                    Avatar_Upload = Storage_Path
+                });
+            }
+
+            return FriendsList;
+        } catch (Exception err) {
+            Console.WriteLine(err);
+            return FriendsList;
+        }
     }
 
     public async Task<bool> SendFriendRequest (int RecieverId, int SenderId, string SenderUsername)

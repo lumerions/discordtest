@@ -656,7 +656,6 @@ public class Server
         }
     }
 
-
     public async Task<List<Members>> GetMemberList (Guid ServerId, Guid? LastId, int? LastPosition)
     {
         var RoleList = new List<Members>();
@@ -1073,7 +1072,7 @@ public class Server
         string TableName = "";
 
         if (PrivateMessage) {
-            TableName = "private_messages";
+            TableName = "dm_messages";
         } else
         {
             TableName = "server_messages";
@@ -1269,7 +1268,7 @@ public class Server
                 UpdateSql = """
                     INSERT INTO pm_pins (message_id, sender_id, receiver_id)
                     SELECT id, sender_id, receiver_id
-                    FROM private_messages
+                    FROM dm_messages
                     WHERE id = @private_message_id;
 
                     DELETE FROM pm_pins
@@ -1478,7 +1477,7 @@ public class Server
         try
         {
             var TableName = "server_messages";
-            if (IsPrivateMessage) TableName = "private_messages";
+            if (IsPrivateMessage) TableName = "dm_messages";
 
             if (!IsPrivateMessage)
             {
@@ -1585,7 +1584,7 @@ public class Server
         try
         {
             var TableName = "server_messages";
-            if (IsPrivateMessage) TableName = "private_messages";
+            if (IsPrivateMessage) TableName = "dm_messages";
             if (Search == null) Search = "";
 
             if (!IsPrivateMessage)

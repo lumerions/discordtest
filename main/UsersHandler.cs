@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using System.IO;
+using System.Text;
 using System.Collections.Generic;
 using Npgsql;
 using Internal.Database;
@@ -21,6 +22,11 @@ public class DMConversationGroupChatMemberList
     public string username {get; set;}
     public string server_tag_id {get; set;}
     public string avatar_path {get; set;}
+}
+
+public class CreateGC
+{
+    public Dictionary<string, string> GCData {get; set;}
 }
 
 public class UsersHandler
@@ -46,7 +52,7 @@ public class UsersHandler
         var Filename = Path.GetFileName(FileName);
         var FileNamePath = Path.Combine(AvatarUploadsPath, Filename);
         var Conn = await DBHandler.GetConnection();
-        var Cmd = new NpgsqlCommand($"SELECT id FROM {TypeInfoValue} WHERE file_name = @file_name;", Conn);
+        await using var Cmd = new NpgsqlCommand($"SELECT id FROM {TypeInfoValue} WHERE file_name = @file_name;", Conn);
         var FileGetResult = await Cmd.ExecuteScalarAsync();
 
         if (FileGetResult == null)
@@ -58,7 +64,7 @@ public class UsersHandler
 
         async Task DeleteFileData ()
         {
-            var DeleteFile = new NpgsqlCommand($"DELETE FROM {TypeInfoValue} WHERE file_name = @file_name;", Conn, Transaction);
+            await using var DeleteFile = new NpgsqlCommand($"DELETE FROM {TypeInfoValue} WHERE file_name = @file_name;", Conn, Transaction);
             DeleteFile.Parameters.AddWithValue("file_name", FileName);
             await DeleteFile.ExecuteNonQueryAsync();
         }
@@ -89,7 +95,7 @@ public class UsersHandler
     public async Task<bool> DeleteAllOldFiles (int UserId)
     {
         var Conn = await DBHandler.GetConnection();
-        var Cmd = new NpgsqlCommand($"""
+        await using var Cmd = new NpgsqlCommand($"""
             SELECT file_name
             FROM avatar_uploads
             WHERE user_id = @user_id
@@ -135,7 +141,7 @@ public class UsersHandler
         try
         {
             var Conn = await DBHandler.GetConnection();
-            var Cmd = new NpgsqlCommand($"DELETE FROM notifications WHERE id = @NotificationId RETURNING id;", Conn);
+            await using var Cmd = new NpgsqlCommand($"DELETE FROM notifications WHERE id = @NotificationId RETURNING id;", Conn);
             Cmd.Parameters.AddWithValue("NotificationId", NotificationId);
             var Result = await Cmd.ExecuteScalarAsync();
 
@@ -159,7 +165,7 @@ public class UsersHandler
 
         try
         {
-            var Cmd = new NpgsqlCommand($"DELETE FROM notifications WHERE id = @NotificationId RETURNING type, sender_id;", Conn, Transaction);
+            await using var Cmd = new NpgsqlCommand($"DELETE FROM notifications WHERE id = @NotificationId RETURNING type, sender_id;", Conn, Transaction);
             Cmd.Parameters.AddWithValue("NotificationId", NotificationId);
             await using var Reader = await Cmd.ExecuteReaderAsync();
 
@@ -172,7 +178,7 @@ public class UsersHandler
             var NotificationType = Reader.GetString(0);
             var SenderId = Reader.GetInt32(1);
             await Reader.DisposeAsync();
-            var WriteCmd = new NpgsqlCommand($"INSERT INTO friends (user_id, friend_id) VALUES (@UserId, @friend_id) RETURNING user_id;", Conn, Transaction);
+            await using var WriteCmd = new NpgsqlCommand($"INSERT INTO friends (user_id, friend_id) VALUES (@UserId, @friend_id) RETURNING user_id;", Conn, Transaction);
             WriteCmd.Parameters.AddWithValue("UserId", UserId);
             WriteCmd.Parameters.AddWithValue("friend_id", SenderId);
             var WriteResult = await WriteCmd.ExecuteScalarAsync();
@@ -199,7 +205,7 @@ public class UsersHandler
 
         try
         {
-            var WriteCmd = new NpgsqlCommand(
+            await using var WriteCmd = new NpgsqlCommand(
                 $"""
                 DELETE FROM friends
                 WHERE user_id = @UserId
@@ -232,7 +238,7 @@ public class UsersHandler
         try
         {
             var Conn = await DBHandler.GetConnection();
-            var Cmd = new NpgsqlCommand($"""
+            await using var Cmd = new NpgsqlCommand($"""
             SELECT
                 CASE
                     WHEN user_id = @UserId THEN friend_id
@@ -269,7 +275,7 @@ public class UsersHandler
 
         try
         {
-            var WriteCmd = new NpgsqlCommand(
+            await using var WriteCmd = new NpgsqlCommand(
                 $"""
                     INSERT INTO personal_profile_note (user_id, personal_note)
                     VALUES (@user_id, @personal_note)
@@ -300,7 +306,7 @@ public class UsersHandler
 
         try
         {
-            var WriteCmd = new NpgsqlCommand(
+            await using var WriteCmd = new NpgsqlCommand(
                 $"""
                     INSERT INTO user_message_reports (reported_message, user_id_reporter, user_id_reported)
                     VALUES (@reported_message, @user_id_reporter, @user_id_reported)
@@ -334,7 +340,7 @@ public class UsersHandler
 
         try
         {
-            var UserConversations = new NpgsqlCommand(
+            await using var UserConversations = new NpgsqlCommand(
                 $"""
                     SELECT 
                         c.id,
@@ -390,11 +396,11 @@ public class UsersHandler
 
         try
         {
-            var UserCloseConversations = new NpgsqlCommand(
+            await using var UserCloseConversations = new NpgsqlCommand(
                 $"""
                     UPDATE dm_conversation_members
                     SET closed = TRUE
-                    WHERE conversation_id = ANY($Conversation_Ids);
+                    WHERE conversation_id = ANY(@Conversation_Ids);
                 """
             , Conn);
 
@@ -419,7 +425,7 @@ public class UsersHandler
 
         try
         {
-            var MemberListInformation = new NpgsqlCommand(
+            await using var MemberListInformation = new NpgsqlCommand(
                 $"""
                 SELECT
                     dcm.user_id,
@@ -455,5 +461,154 @@ public class UsersHandler
         }
 
         return ConversationGCMembers;
+    }
+
+    public async Task<bool> RemoveUserFromGroupChat (int UserId, Guid Conversation_Id)
+    {
+        var Conn = await DBHandler.GetConnection();
+
+        try
+        {
+            await using var RemoveMemberFromConvo = new NpgsqlCommand(
+                $"""
+                    DELETE FROM dm_conversation_members AS m
+                    USING dm_conversations AS c
+                    WHERE m.conversation_id = c.id
+                    AND c.id = @Conversation_Id
+                    AND c.owner_id = @UserId;                
+                """
+            , Conn);
+
+            RemoveMemberFromConvo.Parameters.AddWithValue("Conversation_Id", Conversation_Id);
+            RemoveMemberFromConvo.Parameters.AddWithValue("UserId", UserId);
+
+            var RemoveMemberFromConvoResult = await RemoveMemberFromConvo.ExecuteNonQueryAsync();
+            
+            return RemoveMemberFromConvoResult > 0;
+        } catch (Exception err)
+        {
+           Console.WriteLine(err);
+           return false;
+        }
+    }
+
+    public async Task<bool> BulkWriteGroupIds (NpgsqlTransaction? Transaction, NpgsqlConnection Conn, int[] GroupIds, Guid ConversationId)
+    {
+        try
+        {
+            await using var AddMembersToGc = new NpgsqlCommand(
+                """
+                INSERT INTO dm_conversation_members (
+                    conversation_id,
+                    user_id
+                )
+                SELECT
+                    @ConversationId,
+                    unnest(@UserIds);
+                """, Conn, Transaction);
+
+            if (Transaction != null)
+            {
+                AddMembersToGc.Transaction = Transaction;
+            }
+
+            AddMembersToGc.Parameters.AddWithValue("UserIds", GroupIds);
+            AddMembersToGc.Parameters.AddWithValue("ConversationId", ConversationId);
+
+            var result = await AddMembersToGc.ExecuteNonQueryAsync();
+
+            if (result != GroupIds.Length)
+            {
+                if (Transaction != null)
+                {
+                    await Transaction.RollbackAsync();
+                }
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception err)
+        {
+            Console.WriteLine(err);
+            return false;
+        }
+    }
+
+    public async Task<string> CreateGroupChat (int CreatorId, string GroupChatName, int[] GroupIds)
+    {
+        if (GroupIds.Length > 10) return "Too many ids to add.";
+
+        var Conn = await DBHandler.GetConnection();
+        await using var Transaction = await Conn.BeginTransactionAsync();
+
+        try
+        {
+            await using var AddUserToGc = new NpgsqlCommand(
+                $"""
+                    INSERT INTO dm_conversations (
+                        is_group,
+                        name,
+                        owner_id
+                    )
+                    VALUES (
+                        TRUE,
+                        @Name,
+                        @OwnerId
+                    )
+                    RETURNING id;
+                """
+            , Conn, Transaction);
+
+            AddUserToGc.Parameters.AddWithValue("OwnerId", CreatorId);
+            AddUserToGc.Parameters.AddWithValue("Name", GroupChatName);
+
+            var AddUserToGcResult = await AddUserToGc.ExecuteScalarAsync();
+
+            if (AddUserToGcResult == null)
+            {
+                await Transaction.RollbackAsync();
+                return "Update to conversation failed, please try again later.";
+            }
+
+            Guid ConversationId = (Guid) AddUserToGcResult;
+
+            await using var AddOwnerToGc = new NpgsqlCommand(
+                $"""
+                    INSERT INTO dm_conversation_members (
+                        conversation_id,
+                        user_id,
+                        closed
+                    )
+                    VALUES (
+                        @ConversationId,
+                        @OwnerId,
+                        FALSE
+                    )
+
+                    RETURNING 1;
+                """
+            , Conn, Transaction);
+
+            AddOwnerToGc.Parameters.AddWithValue("OwnerId", CreatorId);
+            AddOwnerToGc.Parameters.AddWithValue("ConversationId", ConversationId);
+
+            var AddOwnerToGcRes = await AddOwnerToGc.ExecuteScalarAsync();
+
+            if (AddOwnerToGcRes is null)
+            {
+                await Transaction.RollbackAsync();
+                return "Add to owner gc didn't work.";
+            }
+
+            await BulkWriteGroupIds(Transaction, Conn, GroupIds, ConversationId);
+            await Transaction.CommitAsync();
+            return "Success";
+        } catch (Exception err)
+        {
+           Console.WriteLine(err);
+           await Transaction.RollbackAsync();
+           return "Internal Server Error.";
+        }
     }
 }

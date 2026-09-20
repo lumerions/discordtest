@@ -54,17 +54,43 @@ public class MessageHandler
         ServerCont = ServerControll;
     }
 
-    public async Task<bool> PrivateMessageUser(int MessagerUserId, int RecieverUserId, string Message, int ChannelId, string PicturePath = "")
+    public async Task<bool> PrivateMessageUser(bool IsGroup, int MessagerUserId, int RecieverUserId, string Message, int ChannelId, string PicturePath = "")
     { 
         try
         {
+            string SQL = IsGroup == true ? """
+                INSERT INTO dm_messages (sender_id, receiver_id, message_content, channel_id, picture_path) VALUES (@sender_id, @receiver_id, @message_content, @channel_id, @picture_path) 
+                RETURNING id;
+            """ : """
+                WITH dm_messages_write AS (
+                    INSERT INTO dm_messages (sender_id, receiver_id, message_content, channel_id, picture_path) VALUES (@sender_id, @receiver_id, @message_content, @channel_id, @picture_path) 
+                    RETURNING id
+                ),
+
+                conversations_write AS (
+                    INSERT INTO dm_conversations (is_group, dm_pair_key) VALUES (FALSE, @dm_pair_key) 
+                    RETURNING id
+                )
+
+                SELECT id FROM dm_messages_write;
+            """;
+
             await using var conn = await DBHandler.GetConnection();
-            await using var cmd = new NpgsqlCommand("INSERT INTO private_messages (sender_id, receiver_id, message_content, private_message, channel_id, picture_path) VALUES (@sender_id, @receiver_id, @message_content, @channel_id, @picture_path) RETURNING id;",conn);
+            await using var cmd = new NpgsqlCommand(SQL, conn);
+            
             cmd.Parameters.AddWithValue("sender_id", MessagerUserId);
             cmd.Parameters.AddWithValue("receiver_id", RecieverUserId);
             cmd.Parameters.AddWithValue("message_content", Message);
             cmd.Parameters.AddWithValue("channel_id", ChannelId);
             cmd.Parameters.AddWithValue("picture_path", PicturePath);
+
+            if (!IsGroup)
+            {
+                var MaxValue = Math.Max(MessagerUserId, RecieverUserId);
+                var MinValue = Math.Min(MessagerUserId, RecieverUserId);
+                var DMPairKey = $"{MaxValue}/{MinValue}";
+                cmd.Parameters.AddWithValue("dm_pair_key", ChannelId);
+            }
 
             var result = await cmd.ExecuteScalarAsync();
 
