@@ -83,7 +83,7 @@ public class MainHandler
            return (true, Socket);
         }
 
-        return (true, null);
+        return (false, null);
     }
 
     public async Task<ProfileInfo> GetProfileInfo (int UserId, int ViewerId, int? ServerId)
@@ -295,7 +295,7 @@ public class MainHandler
         return ProfileInformation;
     }
 
-    public async Task<List<FriendList>> CursorGetFriends (int UserId, int? CursorFriendId, int Limit)
+    public async Task<List<FriendList>> CursorGetFriends (int UserId, int? CursorFriendId, int Limit, bool GetOnlineFriends)
     {
         var FriendsList = new List<FriendList>();
 
@@ -349,8 +349,7 @@ public class MainHandler
 
             await using var Reader = await cmd.ExecuteReaderAsync();
 
-            while (await Reader.ReadAsync()) 
-            {
+            void AddToFriendListCollection () {
                 var Username = Reader.GetString(1);
                 var ServerTag_Id = Reader.GetString(2);
                 var Profile_Status = Reader.GetInt32(3);
@@ -363,6 +362,20 @@ public class MainHandler
                     ProfileStatus = Profile_Status,
                     Avatar_Upload = Storage_Path
                 });
+            }
+
+            while (await Reader.ReadAsync()) 
+            {
+                if (GetOnlineFriends == true) {
+                    var OnlineStatus = UserOnline(UserId);
+                    var IsOnline = OnlineStatus.Online;
+
+                    if (IsOnline == true) {
+                        AddToFriendListCollection();
+                    }
+                } else {
+                    AddToFriendListCollection();
+                }
             }
 
             return FriendsList;

@@ -7,6 +7,8 @@ using Npgsql;
 using Internal.Database;
 using Internal.Shared;
 
+namespace Internal.Users;
+
 public class DMConversationItem
 {
     public Guid id {get; set;}
@@ -136,6 +138,28 @@ public class UsersHandler
         return success;
     }
 
+    public async Task<string> GetSentPendingFriendRequests (int SendId)
+    {
+        try
+        {
+            var Conn = await DBHandler.GetConnection();
+            await using var Cmd = new NpgsqlCommand($"SELECT request_id FROM notifications WHERE sender_id = @SendId AND type = TRUE;", Conn);
+            Cmd.Parameters.AddWithValue("SendId", SendId);
+            var Result = await Cmd.ExecuteScalarAsync();
+
+            if (Result == null)
+            {
+                return "Notification not found.";
+            }
+            
+            return "Success";
+        } catch (Exception err)
+        {
+           Console.WriteLine(err);
+           return "Internal Server Error.";
+        }
+    }
+
     public async Task<string> RejectFriendRequest (Guid NotificationId)
     {
         try
@@ -228,44 +252,6 @@ public class UsersHandler
         {
            Console.WriteLine(err);
            return "Internal Server Error.";
-        }
-    }
-
-    public async Task<Dictionary<string, DateTimeOffset>> GetAllFriends (int UserId)
-    {
-        var FriendData = new Dictionary<string, DateTimeOffset>();
-
-        try
-        {
-            var Conn = await DBHandler.GetConnection();
-            await using var Cmd = new NpgsqlCommand($"""
-            SELECT
-                CASE
-                    WHEN user_id = @UserId THEN friend_id
-                    ELSE user_id
-                END AS friend_id,
-                created_at
-            FROM friends
-            WHERE user_id = @UserId OR friend_id = @UserId;
-            """, Conn);
-
-            Cmd.Parameters.AddWithValue("UserId", UserId);
-
-            await using var reader = await Cmd.ExecuteReaderAsync();
-
-            while (await reader.ReadAsync())
-            {
-                var FriendId = reader.GetInt32(0);
-                var FriendedAt = reader.GetFieldValue<DateTimeOffset>(1);
-                FriendData.Add(FriendId.ToString(), FriendedAt);
-            }
-            
-            return FriendData;
-        } catch (Exception err)
-        {
-           Console.WriteLine(err);
-           FriendData.Add("error", DateTimeOffset.UtcNow);
-           return FriendData;
         }
     }
 
