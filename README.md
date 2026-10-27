@@ -68,7 +68,7 @@ dotnet restore
 Run the dev server:
 
 ```bash
-dotnet run
+dotnet run --configuration Release
 ```
 
 The launch URL is set in `Properties/launchSettings.json`. Example requests are in `discordtest.http`.
